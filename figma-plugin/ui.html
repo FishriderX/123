@@ -241,60 +241,41 @@
   </div>
 </div>
 
-<!-- ⑥ 後處理工具：批次文字樣式 -->
+<!-- ⑥ 後處理工具：指定字元換字型 -->
 <div class="section" style="margin-top:8px;">
-  <div class="section-title collapsible" id="style-toggle" onclick="toggleStyleSection()">
-    <span>⑥ 後處理工具：批次文字樣式</span>
+  <div class="section-title collapsible" id="style-toggle" onclick="toggleSection('style-body','style-toggle')">
+    <span>⑥ 後處理工具：指定字元換字型</span>
     <span class="chevron">▾</span>
   </div>
   <div class="collapsible-body hidden" id="style-body">
     <div class="step-box" style="margin-bottom:10px;">
-      選取 Frame 或文字節點後套用。<strong>空白欄位保持原值不變</strong>，只填想改的項目。
+      選取 Frame 或文字節點後套用。輸入要替換的字元，以及目標字型。
+    </div>
+
+    <div style="margin-bottom:8px;">
+      <label>要替換的字元（可輸入多個，例如 <code>·•</code>）</label>
+      <input type="text" id="targetChars" placeholder="·" />
     </div>
 
     <div class="row-2">
       <div>
-        <label>字型 Family <span id="fontLoadingHint" style="color:#555; font-size:10px;">（載入中...）</span></label>
+        <label>目標字型 Family <span id="fontLoadingHint" style="color:#555; font-size:10px;">（載入中...）</span></label>
         <input type="text" id="newFontFamily" list="fontFamilyList"
-               placeholder="搜尋或選擇字型名稱" autocomplete="off" />
+               placeholder="例：Noto Sans TC" autocomplete="off" />
         <datalist id="fontFamilyList"></datalist>
       </div>
       <div>
         <label>字重 Style</label>
         <select id="newFontStyle">
-          <option value="">— 不更改 —</option>
-          <option value="Thin">Thin</option>
-          <option value="ExtraLight">ExtraLight</option>
-          <option value="Light">Light</option>
           <option value="Regular">Regular</option>
+          <option value="Light">Light</option>
           <option value="Medium">Medium</option>
           <option value="SemiBold">SemiBold</option>
           <option value="Bold">Bold</option>
+          <option value="Thin">Thin</option>
+          <option value="ExtraLight">ExtraLight</option>
           <option value="ExtraBold">ExtraBold</option>
           <option value="Black">Black</option>
-        </select>
-      </div>
-    </div>
-
-    <div class="row-2" style="margin-top:8px;">
-      <div>
-        <label>字型大小（px）</label>
-        <input type="number" id="newFontSize" placeholder="留空不更改" min="1" max="500" />
-      </div>
-      <div>
-        <label>字距（%）</label>
-        <input type="number" id="newLetterSpacing" placeholder="留空不更改" step="0.1" />
-      </div>
-    </div>
-
-    <div style="margin-top:8px;">
-      <label>行距</label>
-      <div class="lh-row">
-        <input type="number" id="newLineHeight" placeholder="留空不更改" min="1" max="500" />
-        <select id="lineHeightUnit">
-          <option value="PIXELS">px</option>
-          <option value="PERCENT">%</option>
-          <option value="AUTO">AUTO</option>
         </select>
       </div>
     </div>
@@ -303,6 +284,24 @@
       套用到選取範圍
     </button>
     <div class="status-box" id="styleStatusBox"></div>
+  </div>
+</div>
+
+<!-- ⑦ 後處理工具：修正圓點字型 -->
+<div class="section" style="margin-top:8px;">
+  <div class="section-title collapsible" id="bullet-toggle" onclick="toggleSection('bullet-body','bullet-toggle')">
+    <span>⑦ 後處理工具：修正圓點字型</span>
+    <span class="chevron">▾</span>
+  </div>
+  <div class="collapsible-body hidden" id="bullet-body">
+    <div class="step-box" style="margin-bottom:10px;">
+      選取 Frame 或文字節點後執行。<br>
+      將範圍內所有 <code>·</code> <code>•</code> 等圓點符號的字型一律改為 <strong>Noto Sans TC</strong>，不影響其他文字。
+    </div>
+    <button class="btn-secondary" id="btnFixBullet" style="width:100%; padding:10px;">
+      修正圓點字型 → Noto Sans TC
+    </button>
+    <div class="status-box" id="bulletStatusBox"></div>
   </div>
 </div>
 
@@ -480,6 +479,16 @@
         showStyleStatus('error', msg.text);
         document.getElementById('btnApplyStyle').disabled = false;
         break;
+      case 'bullet-done':
+        document.getElementById('bulletStatusBox').className = 'status-box status-done';
+        document.getElementById('bulletStatusBox').textContent = msg.text;
+        document.getElementById('btnFixBullet').disabled = false;
+        break;
+      case 'bullet-error':
+        document.getElementById('bulletStatusBox').className = 'status-box status-error';
+        document.getElementById('bulletStatusBox').textContent = msg.text;
+        document.getElementById('btnFixBullet').disabled = false;
+        break;
     }
   };
 
@@ -516,53 +525,33 @@
     parent.postMessage({ pluginMessage: { type: 'icons-only' } }, '*');
   });
 
-  // ── 批次文字樣式 ────────────────────────────────────────────
-  function toggleStyleSection() {
-    const body   = document.getElementById('style-body');
-    const toggle = document.getElementById('style-toggle');
-    const isOpen = !body.classList.contains('hidden');
-    body.classList.toggle('hidden', isOpen);
-    toggle.classList.toggle('collapsed', isOpen);
-  }
-
+  // ── 指定字元換字型 ──────────────────────────────────────────
   function showStyleStatus(type, text) {
     const box = document.getElementById('styleStatusBox');
-    box.className = 'status-box ' + type;
+    box.className = 'status-box status-' + type;
     box.textContent = text;
   }
 
-  // AUTO 時隱藏數值輸入
-  document.getElementById('lineHeightUnit').addEventListener('change', function () {
-    document.getElementById('newLineHeight').style.visibility =
-      this.value === 'AUTO' ? 'hidden' : 'visible';
-  });
-
   document.getElementById('btnApplyStyle').addEventListener('click', () => {
-    const fontFamily    = document.getElementById('newFontFamily').value.trim() || null;
-    const fontStyle     = document.getElementById('newFontStyle').value || null;
-    const fontSizeRaw   = document.getElementById('newFontSize').value;
-    const fontSize      = fontSizeRaw !== '' ? parseFloat(fontSizeRaw) : null;
-    const lsRaw         = document.getElementById('newLetterSpacing').value;
-    const letterSpacing = lsRaw !== '' ? parseFloat(lsRaw) : null;
-    const lhUnit        = document.getElementById('lineHeightUnit').value;
-    const lhRaw         = document.getElementById('newLineHeight').value;
-    const lineHeight    = (lhUnit === 'AUTO') ? 'AUTO'
-                        : (lhRaw !== '' ? parseFloat(lhRaw) : null);
+    const characters = document.getElementById('targetChars').value;
+    const fontFamily = document.getElementById('newFontFamily').value.trim();
+    const fontStyle  = document.getElementById('newFontStyle').value;
 
-    if (!fontFamily && !fontStyle && fontSize === null && letterSpacing === null && lineHeight === null) {
-      showStyleStatus('error', '⚠️ 請至少填寫一個要更改的欄位。');
-      return;
-    }
+    if (!characters) { showStyleStatus('error', '⚠️ 請輸入要替換的字元'); return; }
+    if (!fontFamily)  { showStyleStatus('error', '⚠️ 請輸入目標字型'); return; }
 
     document.getElementById('btnApplyStyle').disabled = true;
     showStyleStatus('info', '⏳ 套用中...');
     parent.postMessage({
-      pluginMessage: {
-        type: 'change-text-style',
-        fontFamily, fontStyle, fontSize, letterSpacing, lineHeight,
-        lineHeightUnit: lhUnit,
-      }
+      pluginMessage: { type: 'replace-char-font', characters, fontFamily, fontStyle }
     }, '*');
+  });
+
+  document.getElementById('btnFixBullet').addEventListener('click', () => {
+    document.getElementById('btnFixBullet').disabled = true;
+    document.getElementById('bulletStatusBox').className = 'status-box status-info';
+    document.getElementById('bulletStatusBox').textContent = '⏳ 修正中...';
+    parent.postMessage({ pluginMessage: { type: 'fix-bullet-font' } }, '*');
   });
 
   // ── Radio buttons ──────────────────────────────────────────

@@ -36,8 +36,11 @@ figma.ui.onmessage = async (msg) => {
     case "icons-only":
       await handleIconsOnly();
       break;
-    case "change-text-style":
-      await handleChangeTextStyle(msg);
+    case "fix-bullet-font":
+      await handleFixBulletFont();
+      break;
+    case "replace-char-font":
+      await handleReplaceCharFont(msg);
       break;
   }
 };
@@ -165,6 +168,7 @@ async function generateManual({ rows, language, frameGap, rowGap }) {
         ruleNode.layoutAlign = "STRETCH";
         ruleNode.layoutGrow = 1;
         ruleNode.textAutoResize = "NONE";
+        // 設定 bullet 縮排（Figma unordered list 提供自動 hanging indent）
         for (const { start, end } of bulletRanges) {
           ruleNode.setRangeListOptions(start, end, { type: 'UNORDERED' });
         }
@@ -271,6 +275,56 @@ function processBulletText(text) {
 // 後處理工具：僅換圖
 // =============================================
 
+// =============================================
+// 後處理工具：修正圓點字型 → Noto Sans TC
+// =============================================
+
+async function handleFixBulletFont() {
+  const selection = figma.currentPage.selection;
+  if (selection.length === 0) {
+    figma.ui.postMessage({ type: 'bullet-error', text: '⚠️ 請先選取至少一個節點' });
+    return;
+  }
+
+  const fontTC = { family: "Noto Sans TC", style: "Regular" };
+  try {
+    await figma.loadFontAsync(fontTC);
+  } catch (e) {
+    figma.ui.postMessage({ type: 'bullet-error', text: '⚠️ 無法載入 Noto Sans TC，請確認字型已安裝' });
+    return;
+  }
+
+  // 涵蓋各種常見圓點/bullet unicode 字元
+  const BULLET_RE = /[·•‧・･∙▪◦]/;
+
+  const textNodes = [];
+  for (const node of selection) {
+    if (node.type === 'TEXT') textNodes.push(node);
+    if ('findAll' in node) textNodes.push(...node.findAll(n => n.type === 'TEXT'));
+  }
+
+  let fixCount = 0;
+  for (const tn of textNodes) {
+    const chars = tn.characters;
+    // 先載入該節點所有用到的字型
+    try {
+      const fonts = tn.getStyledTextSegments(['fontName']).map(s => s.fontName);
+      for (const f of fonts) { try { await figma.loadFontAsync(f); } catch (_) {} }
+    } catch (_) {}
+
+    for (let i = 0; i < chars.length; i++) {
+      if (BULLET_RE.test(chars[i])) {
+        try {
+          tn.setRangeFontName(i, i + 1, fontTC);
+          fixCount++;
+        } catch (_) {}
+      }
+    }
+  }
+
+  figma.ui.postMessage({ type: 'bullet-done', text: `✅ 完成！共修正 ${fixCount} 個圓點符號 → Noto Sans TC` });
+}
+
 function isInComponent(node) {
   let current = node.parent;
   while (current) {
@@ -357,7 +411,7 @@ async function handleIconsOnly() {
 
     const lines = textNode.characters.split('\n');
 
-    // 偵測哪些行是 bullet list item
+    // 偵測哪些行是 bullet list item（用 listOptions，與 setRangeListOptions 對應）
     const bulletLineSet = new Set();
     try {
       const segs = textNode.getStyledTextSegments(['listOptions']);
@@ -373,6 +427,11 @@ async function handleIconsOnly() {
     const indentWidth = 24; // 懸掛縮排的透明間距寬度（px）
     const ITEM_GAP = 10;   // token 之間的間距
 
+    // 預先載入 Noto Sans TC（供換圖時 · 符號使用，有則用，無則用原字型）
+    const fontTC = { family: "Noto Sans TC", style: "Regular" };
+    let tcLoaded = false;
+    try { await figma.loadFontAsync(fontTC); tcLoaded = true; } catch (_) {}
+
     for (let i = 0; i < lines.length; i++) {
       const isBullet = bulletLineSet.has(i);
 
@@ -381,6 +440,7 @@ async function handleIconsOnly() {
 
       if (isBullet) {
         const bt = await makeTextNode(textNode, '· ', false);
+        if (tcLoaded) bt.fontName = fontTC;
         items.push({ node: bt, width: bt.width });
       }
 
@@ -1094,69 +1154,86 @@ function tokenizeText(text) {
 }
 
 // =============================================
-// 後處理工具：批次文字樣式
+// 後處理工具：指定字元換字型
 // =============================================
 
-async function handleChangeTextStyle(opts) {
-  const selection = figma.currentPage.selection;
+// 取得文字節點內所有使用到的字型（逐字元讀取，確保不遺漏）
+function getUniqueFontNames(textNode) {
+  var seen = new Set();
+  var result = [];
+  var text = textNode.characters;
+  for (var i = 0; i < text.length; i++) {
+    var font = textNode.getRangeFontName(i, i + 1);
+    if (typeof font !== 'symbol') {
+      var key = font.family + '||' + font.style;
+      if (!seen.has(key)) { seen.add(key); result.push(font); }
+    }
+  }
+  return result;
+}
+
+async function handleReplaceCharFont(msg) {
+  var characters = msg.characters || '';
+  var fontFamily = msg.fontFamily || '';
+  var fontStyle  = msg.fontStyle  || 'Regular';
+
+  if (!characters) {
+    figma.ui.postMessage({ type: 'style-error', text: '⚠️ 請輸入要替換的字元' });
+    return;
+  }
+  if (!fontFamily) {
+    figma.ui.postMessage({ type: 'style-error', text: '⚠️ 請輸入目標字型' });
+    return;
+  }
+
+  var selection = figma.currentPage.selection;
   if (selection.length === 0) {
     figma.ui.postMessage({ type: 'style-error', text: '⚠️ 請先選取至少一個節點' });
     return;
   }
 
-  const textNodes = [];
-  for (const node of selection) {
-    if (node.type === 'TEXT') textNodes.push(node);
-    if ('findAll' in node) textNodes.push(...node.findAll(function(n) { return n.type === 'TEXT'; }));
-  }
-  if (textNodes.length === 0) {
-    figma.ui.postMessage({ type: 'style-error', text: '⚠️ 選取範圍內找不到文字節點' });
+  var targetFont = { family: fontFamily, style: fontStyle };
+  try {
+    await figma.loadFontAsync(targetFont);
+  } catch (e) {
+    figma.ui.postMessage({ type: 'style-error', text: '⚠️ 無法載入字型：' + fontFamily + ' ' + fontStyle });
     return;
   }
 
-  const fontCache = new Set();
-  var succeeded = 0, failed = 0;
+  var targetChars = characters.split('');
+  var textNodes = [];
+  for (var ni = 0; ni < selection.length; ni++) {
+    var n = selection[ni];
+    if (n.type === 'TEXT') textNodes.push(n);
+    if ('findAll' in n) textNodes.push.apply(textNodes, n.findAll(function(c) { return c.type === 'TEXT'; }));
+  }
 
-  for (var i = 0; i < textNodes.length; i++) {
-    var node = textNodes[i];
-    try {
-      if (opts.fontFamily || opts.fontStyle) {
-        var currentFont = node.fontName === figma.mixed
-          ? node.getStyledTextSegments(['fontName'])[0].fontName
-          : node.fontName;
-        var isBullet = node.characters && node.characters.charAt(0) === '·';
-        var newFont = {
-          family: (isBullet || !opts.fontFamily) ? currentFont.family : opts.fontFamily,
-          style:  opts.fontStyle || currentFont.style,
-        };
-        var cacheKey = newFont.family + '-' + newFont.style;
-        if (!fontCache.has(cacheKey)) {
-          await figma.loadFontAsync(newFont);
-          fontCache.add(cacheKey);
-        }
-        node.fontName = newFont;
+  var totalFixed = 0;
+  for (var ti = 0; ti < textNodes.length; ti++) {
+    var tn = textNodes[ti];
+    var text = tn.characters;
+    if (!targetChars.some(function(ch) { return text.includes(ch); })) continue;
+
+    // 載入節點內所有現有字型（參考工具的核心做法）
+    var existingFonts = getUniqueFontNames(tn);
+    for (var fi = 0; fi < existingFonts.length; fi++) {
+      try { await figma.loadFontAsync(existingFonts[fi]); } catch (_) {}
+    }
+
+    for (var ci = 0; ci < text.length; ci++) {
+      if (targetChars.indexOf(text[ci]) >= 0) {
+        try {
+          tn.setRangeFontName(ci, ci + 1, targetFont);
+          totalFixed++;
+        } catch (_) {}
       }
-
-      if (opts.fontSize !== null) node.fontSize = opts.fontSize;
-
-      if (opts.lineHeight !== null) {
-        node.lineHeight = (opts.lineHeight === 'AUTO')
-          ? { unit: 'AUTO' }
-          : { unit: opts.lineHeightUnit, value: opts.lineHeight };
-      }
-
-      if (opts.letterSpacing !== null) {
-        node.letterSpacing = { unit: 'PERCENT', value: opts.letterSpacing };
-      }
-
-      succeeded++;
-    } catch (e) {
-      failed++;
     }
   }
 
-  var resultText = failed > 0
-    ? ('⚠️ 已更新 ' + succeeded + ' 個，' + failed + ' 個失敗（字型或樣式可能不存在）')
-    : ('✅ 已更新 ' + succeeded + ' 個文字節點');
-  figma.ui.postMessage({ type: 'style-done', text: resultText });
+  figma.ui.postMessage({
+    type: 'style-done',
+    text: totalFixed > 0
+      ? ('✅ 完成！共更換 ' + totalFixed + ' 個字元的字型')
+      : '⚠️ 未找到目標字元，或字型設定失敗'
+  });
 }
