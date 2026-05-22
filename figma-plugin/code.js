@@ -192,6 +192,8 @@ async function generateManual({ rows, language, frameGap, rowGap }) {
           }
         } catch (_) {}
 
+        // 所有 children 加完後再設，避免 Figma 在 append 時自動恢復 true
+        pageFrame.clipsContent = false;
         outerFrame.appendChild(pageFrame);
         totalGenerated++;
       }
@@ -388,7 +390,7 @@ async function handleIconsOnly() {
       for (const part of parts) {
         const tagMatch = /^\[([^\]]+)\]$/.exec(part);
         if (tagMatch) {
-          const comp = figma.currentPage.findOne(n => n.type === 'COMPONENT' && n.name === tagMatch[1]);
+          const comp = figma.root.findOne(n => n.type === 'COMPONENT' && n.name === tagMatch[1]);
           if (comp) {
             const inst = comp.createInstance();
             inst.name = 'icon_' + tagMatch[1];
@@ -584,6 +586,7 @@ function makeTblRow() {
   row.paddingTop = row.paddingBottom = 0;
   row.fills = [];
   row.strokes = [];
+  row.clipsContent = false;
   return row;
 }
 
@@ -602,6 +605,7 @@ function makeTblCell(width, text, font, fontSize, isHeader, align) {
   cell.paddingTop = cell.paddingBottom = 10;
   cell.fills = TBL_CELL_FILL;
   cell.strokes = [];
+  cell.clipsContent = false;
   const t = figma.createText();
   t.fontName = font;
   t.fontSize = fontSize;
@@ -629,6 +633,7 @@ function makeTblCellGrow(text, font, fontSize, isHeader) {
   cell.paddingTop = cell.paddingBottom = 10;
   cell.fills = TBL_CELL_FILL;
   cell.strokes = [];
+  cell.clipsContent = false;
   const t = figma.createText();
   t.fontName = font;
   t.fontSize = fontSize;

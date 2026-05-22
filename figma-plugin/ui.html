@@ -155,6 +155,10 @@
 <div class="section">
   <div class="section-title">② Google Sheet 網址</div>
   <input type="text" id="sheetUrl" placeholder="https://docs.google.com/spreadsheets/d/..." />
+  <div style="display:flex; gap:8px; margin-top:8px; align-items:center;">
+    <label style="margin:0; white-space:nowrap; color:#aaa; font-size:12px;">工作表名稱</label>
+    <input type="text" id="sheetName" placeholder="留空 = 第一張（例：工作表1）" style="margin:0;" />
+  </div>
 </div>
 
 <!-- ③ 生成語言 -->
@@ -341,7 +345,9 @@
     const sheetId = extractSheetId(sheetUrl);
     if (!sheetId)  throw new Error('無效的 Google Sheet 網址，請確認格式正確。');
 
-    const url = `https://sheets.googleapis.com/v4/spreadsheets/${sheetId}/values/A:Z?majorDimension=ROWS&key=${encodeURIComponent(apiKey)}`;
+    const sheetName = (document.getElementById('sheetName').value || '').trim();
+    const range = sheetName ? `${encodeURIComponent(sheetName)}!A:Z` : 'A:Z';
+    const url = `https://sheets.googleapis.com/v4/spreadsheets/${sheetId}/values/${range}?majorDimension=ROWS&key=${encodeURIComponent(apiKey)}`;
     const res = await fetch(url);
 
     if (res.status === 403) throw new Error('存取被拒（403）。\n請確認：\n・Sheet 已設為「知道連結的任何人可檢視」\n・API Key 有啟用 Google Sheets API');
@@ -393,8 +399,9 @@
       pluginMessage: {
         type: 'saveSettings',
         data: {
-          apiKey:   document.getElementById('apiKey').value.trim(),
-          sheetUrl: document.getElementById('sheetUrl').value.trim(),
+          apiKey:    document.getElementById('apiKey').value.trim(),
+          sheetUrl:  document.getElementById('sheetUrl').value.trim(),
+          sheetName: document.getElementById('sheetName').value.trim(),
           language,
           frameGap: document.getElementById('frameGap').value,
           rowGap:   document.getElementById('rowGap').value,
@@ -405,8 +412,9 @@
 
   function applySettings(data) {
     if (!data) return;
-    if (data.apiKey)   document.getElementById('apiKey').value   = data.apiKey;
-    if (data.sheetUrl) document.getElementById('sheetUrl').value = data.sheetUrl;
+    if (data.apiKey)    document.getElementById('apiKey').value    = data.apiKey;
+    if (data.sheetUrl)  document.getElementById('sheetUrl').value  = data.sheetUrl;
+    if (data.sheetName) document.getElementById('sheetName').value = data.sheetName;
     if (data.frameGap) document.getElementById('frameGap').value = data.frameGap;
     if (data.rowGap)   document.getElementById('rowGap').value   = data.rowGap;
     if (data.language) {
