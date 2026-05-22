@@ -1,0 +1,578 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+<meta charset="UTF-8" />
+<title>遊戲說明書產生器 v3</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    font-family: "Noto Sans TC", "Microsoft JhengHei", sans-serif;
+    background: #1a1a2e; color: #e0e0e0;
+    padding: 20px; font-size: 13px;
+  }
+  .header { text-align: center; margin-bottom: 18px; }
+  .header h1 { font-size: 17px; color: #f0c040; letter-spacing: 2px; margin-bottom: 3px; }
+  .header .version { font-size: 11px; color: #f0c040; opacity: 0.6; }
+
+  .section {
+    background: #16213e; border: 1px solid #0f3460;
+    border-radius: 8px; padding: 14px; margin-bottom: 12px;
+  }
+  .section-title {
+    font-size: 11px; color: #f0c040; font-weight: bold;
+    margin-bottom: 10px; letter-spacing: 1px; text-transform: uppercase;
+  }
+  .section-title.collapsible {
+    cursor: pointer; user-select: none;
+    display: flex; justify-content: space-between; align-items: center;
+    margin-bottom: 0;
+  }
+  .section-title.collapsible:hover { opacity: 0.8; }
+  .collapsible .chevron { transition: transform 0.2s; }
+  .collapsible.collapsed .chevron { transform: rotate(-90deg); }
+  .collapsible-body { margin-top: 10px; }
+
+  label { display: block; color: #aaa; margin-bottom: 5px; font-size: 12px; }
+  input[type="text"], input[type="number"] {
+    width: 100%; padding: 8px 11px;
+    background: #0f3460; border: 1px solid #1a5276;
+    border-radius: 6px; color: #fff; font-size: 13px; outline: none;
+    transition: border 0.2s;
+  }
+  input:focus { border-color: #f0c040; }
+  input::placeholder { color: #555; }
+
+  .step-box {
+    background: #0a1628; border: 1px solid #0f3460;
+    border-radius: 6px; padding: 12px;
+    font-size: 12px; line-height: 1.9; color: #aaa;
+  }
+  .step-box code {
+    background: #1a3a6e; color: #82e0aa;
+    padding: 2px 6px; border-radius: 3px;
+    font-family: monospace; font-size: 11px;
+  }
+  .step-box strong { color: #f0c040; }
+
+  .save-row { display: flex; gap: 8px; align-items: flex-end; margin-top: 10px; }
+  .save-row input { flex: 1; margin: 0; }
+  .btn-secondary {
+    padding: 8px 14px; background: #0f3460; border: 1px solid #1a5276;
+    border-radius: 6px; color: #e0e0e0; font-size: 12px; cursor: pointer;
+    white-space: nowrap; transition: all 0.2s;
+  }
+  .btn-secondary:hover { border-color: #f0c040; color: #f0c040; }
+
+  .radio-group { display: flex; gap: 8px; }
+  .radio-option {
+    display: flex; align-items: center; gap: 6px;
+    background: #0f3460; border: 1px solid #1a5276;
+    border-radius: 6px; padding: 7px 12px; cursor: pointer;
+    transition: all 0.2s; flex: 1; justify-content: center; font-size: 12px;
+  }
+  .radio-option:hover { border-color: #f0c040; }
+  .radio-option.selected { border-color: #f0c040; background: #1a3a6e; }
+  .radio-option input[type="radio"] { accent-color: #f0c040; }
+
+  .row-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+
+  .btn-generate {
+    width: 100%; padding: 12px;
+    background: linear-gradient(135deg, #f0c040, #e67e22);
+    border: none; border-radius: 8px; color: #1a1a2e;
+    font-size: 14px; font-weight: bold; cursor: pointer;
+    letter-spacing: 2px; transition: opacity 0.2s; margin-top: 4px;
+  }
+  .btn-generate:hover { opacity: 0.9; }
+  .btn-generate:disabled { opacity: 0.4; cursor: not-allowed; }
+
+  .status-box {
+    margin-top: 12px; padding: 11px 14px;
+    border-radius: 8px; font-size: 12px; line-height: 1.7;
+    display: none; white-space: pre-wrap;
+  }
+  .status-box.info  { background: #0f3460; border: 1px solid #1a5276; color: #aed6f1; display: block; }
+  .status-box.error { background: #4a0e0e; border: 1px solid #922b21; color: #f1948a; display: block; }
+  .status-box.done  { background: #0e4a1e; border: 1px solid #1e8449; color: #82e0aa; display: block; }
+
+  .progress-bar { height: 3px; background: #0f3460; border-radius: 2px; margin-top: 8px; overflow: hidden; display: none; }
+  .progress-bar.active { display: block; }
+  .progress-fill {
+    height: 100%; background: linear-gradient(90deg, #f0c040, #e67e22);
+    border-radius: 2px; animation: indeterminate 1.5s infinite;
+  }
+  @keyframes indeterminate {
+    0%   { transform: translateX(-100%); width: 60%; }
+    100% { transform: translateX(200%); width: 60%; }
+  }
+  .hidden { display: none !important; }
+
+  select {
+    width: 100%; padding: 8px 11px;
+    background: #0f3460; border: 1px solid #1a5276;
+    border-radius: 6px; color: #fff; font-size: 13px;
+    outline: none; cursor: pointer; appearance: none; -webkit-appearance: none;
+  }
+  select:focus { border-color: #f0c040; }
+  option { background: #1a1a2e; }
+
+  .lh-row { display: flex; gap: 8px; }
+  .lh-row input { flex: 1; }
+  .lh-row select { width: 90px; flex-shrink: 0; }
+</style>
+</head>
+<body>
+
+<div class="header">
+  <h1>🎮 遊戲說明書產生器</h1>
+  <div class="version">v3.1 — Google Sheets API</div>
+</div>
+
+<!-- ① API Key 設定（可折疊） -->
+<div class="section">
+  <div class="section-title collapsible" id="setup-toggle" onclick="toggleSetup()">
+    <span>① 首次設定：Google API Key</span>
+    <span class="chevron">▾</span>
+  </div>
+  <div class="collapsible-body" id="setup-body">
+    <div class="step-box">
+      <strong>步驟 A：讓 Sheet 可公開讀取</strong><br>
+      Google Sheet 右上角「共用」→ 一般存取改為<strong>「知道連結的任何人」</strong>→ 角色設為<strong>「檢視者」</strong><br><br>
+      <strong>步驟 B：取得 API Key</strong><br>
+      1. 前往 <strong>Google Cloud Console</strong> → 憑證<br>
+      2. 點「建立憑證」→「<strong>API 金鑰</strong>」<br>
+      3. 建議：點「限制金鑰」→ API 限制選 <strong>Google Sheets API</strong><br>
+      4. 複製金鑰（格式：<code>AIzaSy...</code>）貼到下方
+    </div>
+    <div class="save-row">
+      <input type="text" id="apiKey" placeholder="AIzaSy..." />
+      <button class="btn-secondary" onclick="saveApiKey()">儲存</button>
+    </div>
+  </div>
+</div>
+
+<!-- ② Google Sheet 網址 -->
+<div class="section">
+  <div class="section-title">② Google Sheet 網址</div>
+  <input type="text" id="sheetUrl" placeholder="https://docs.google.com/spreadsheets/d/..." />
+</div>
+
+<!-- ③ 生成語言 -->
+<div class="section">
+  <div class="section-title">③ 生成語言</div>
+  <div class="radio-group">
+    <label class="radio-option" id="opt-sch">
+      <input type="radio" name="language" value="sch" /> 中文版（Sch）
+    </label>
+    <label class="radio-option" id="opt-en">
+      <input type="radio" name="language" value="en" /> 英文版（EN）
+    </label>
+    <label class="radio-option selected" id="opt-both">
+      <input type="radio" name="language" value="both" checked /> 兩種都生成
+    </label>
+  </div>
+</div>
+
+<!-- ④ 間距設定 -->
+<div class="section">
+  <div class="section-title">④ 間距設定</div>
+  <div class="row-2">
+    <div>
+      <label>Frame 水平間距（px）</label>
+      <input type="number" id="frameGap" value="40" min="0" max="200" />
+    </div>
+    <div>
+      <label>行與行垂直間距（px）</label>
+      <input type="number" id="rowGap" value="40" min="0" max="200" />
+    </div>
+  </div>
+</div>
+
+<button class="btn-generate" id="btnGenerate">🚀 開始生成說明書</button>
+<div class="progress-bar" id="progressBar"><div class="progress-fill"></div></div>
+<div class="status-box" id="statusBox"></div>
+
+<!-- 表格格式說明 -->
+<div class="section" style="margin-top:8px;">
+  <div class="section-title collapsible" id="tbl-guide-toggle" onclick="toggleSection('tbl-guide-body','tbl-guide-toggle')">
+    <span>📋 表格欄位填寫規則</span>
+    <span class="chevron">▾</span>
+  </div>
+  <div class="collapsible-body hidden" id="tbl-guide-body">
+    <div class="step-box" style="line-height:2;">
+      <strong>基本原則</strong><br>
+      ・每一列資料 → 各佔一行（換行分隔）<br>
+      ・每一欄資料 → 用 <code>Tab</code> 或 <strong>兩個以上的空格</strong> 分隔<br>
+      ・行尾多餘的空格/Tab 會自動忽略<br><br>
+      <strong>第一欄（標籤欄）要留空時</strong><br>
+      ・在該行開頭加一個 <code>Tab</code> 或兩個空格<br>
+      ・例如：<code>[Tab]DENOMINATION</code> → 第一欄空白，第二欄顯示 DENOMINATION<br><br>
+      <strong>跨欄 Header（自動偵測）</strong><br>
+      ・若某列的欄位數比其他列少，最後一個值會自動延展填滿剩餘欄位<br>
+      ・例如：只填 <code>[Tab]DENOMINATION</code>，DENOMINATION 會自動跨越所有 Denom 欄<br><br>
+      <strong>注意事項</strong><br>
+      ・欄位值本身<strong>不能含有連續兩個以上的空格</strong>，否則會被誤判為欄位分隔
+    </div>
+  </div>
+</div>
+
+<!-- ⑤ 後處理工具：文換圖 -->
+<div class="section" style="margin-top:16px;">
+  <div class="section-title collapsible" id="icon-toggle" onclick="toggleIconSection()">
+    <span>⑤ 後處理工具：文換圖</span>
+    <span class="chevron">▾</span>
+  </div>
+  <div class="collapsible-body hidden" id="icon-body">
+    <div class="step-box" style="margin-bottom:10px;">
+      在試算表的文字欄位中，用 <code>[元件名稱]</code> 標記要替換的圖示。<br>
+      確認 Figma 畫布上有對應名稱的 <strong>Component</strong>，選取 Frame 或文字節點後執行。
+    </div>
+    <div style="display:flex; flex-direction:column; gap:8px;">
+      <button class="btn-secondary" id="btnIconsOnly" style="width:100%; padding:10px;">
+        換圖（選取文字節點或 Frame → 就地替換 [tag]）
+      </button>
+    </div>
+    <div class="progress-bar" id="iconProgressBar"><div class="progress-fill"></div></div>
+    <div class="status-box" id="iconStatusBox"></div>
+  </div>
+</div>
+
+<!-- ⑥ 後處理工具：批次文字樣式 -->
+<div class="section" style="margin-top:8px;">
+  <div class="section-title collapsible" id="style-toggle" onclick="toggleStyleSection()">
+    <span>⑥ 後處理工具：批次文字樣式</span>
+    <span class="chevron">▾</span>
+  </div>
+  <div class="collapsible-body hidden" id="style-body">
+    <div class="step-box" style="margin-bottom:10px;">
+      選取 Frame 或文字節點後套用。<strong>空白欄位保持原值不變</strong>，只填想改的項目。
+    </div>
+
+    <div class="row-2">
+      <div>
+        <label>字型 Family <span id="fontLoadingHint" style="color:#555; font-size:10px;">（載入中...）</span></label>
+        <input type="text" id="newFontFamily" list="fontFamilyList"
+               placeholder="搜尋或選擇字型名稱" autocomplete="off" />
+        <datalist id="fontFamilyList"></datalist>
+      </div>
+      <div>
+        <label>字重 Style</label>
+        <select id="newFontStyle">
+          <option value="">— 不更改 —</option>
+          <option value="Thin">Thin</option>
+          <option value="ExtraLight">ExtraLight</option>
+          <option value="Light">Light</option>
+          <option value="Regular">Regular</option>
+          <option value="Medium">Medium</option>
+          <option value="SemiBold">SemiBold</option>
+          <option value="Bold">Bold</option>
+          <option value="ExtraBold">ExtraBold</option>
+          <option value="Black">Black</option>
+        </select>
+      </div>
+    </div>
+
+    <div class="row-2" style="margin-top:8px;">
+      <div>
+        <label>字型大小（px）</label>
+        <input type="number" id="newFontSize" placeholder="留空不更改" min="1" max="500" />
+      </div>
+      <div>
+        <label>字距（%）</label>
+        <input type="number" id="newLetterSpacing" placeholder="留空不更改" step="0.1" />
+      </div>
+    </div>
+
+    <div style="margin-top:8px;">
+      <label>行距</label>
+      <div class="lh-row">
+        <input type="number" id="newLineHeight" placeholder="留空不更改" min="1" max="500" />
+        <select id="lineHeightUnit">
+          <option value="PIXELS">px</option>
+          <option value="PERCENT">%</option>
+          <option value="AUTO">AUTO</option>
+        </select>
+      </div>
+    </div>
+
+    <button class="btn-secondary" id="btnApplyStyle" style="width:100%; padding:10px; margin-top:10px;">
+      套用到選取範圍
+    </button>
+    <div class="status-box" id="styleStatusBox"></div>
+  </div>
+</div>
+
+<script>
+  // ── Setup toggle ───────────────────────────────────────────
+  function toggleSetup() {
+    const body   = document.getElementById('setup-body');
+    const toggle = document.getElementById('setup-toggle');
+    const isOpen = !body.classList.contains('hidden');
+    body.classList.toggle('hidden', isOpen);
+    toggle.classList.toggle('collapsed', isOpen);
+  }
+
+  function collapseSetup() {
+    document.getElementById('setup-body').classList.add('hidden');
+    document.getElementById('setup-toggle').classList.add('collapsed');
+  }
+
+  function saveApiKey() {
+    const key = document.getElementById('apiKey').value.trim();
+    if (!key) { showStatus('error', '⚠️ 請先輸入 API Key。'); return; }
+    persistSettings();
+    collapseSetup();
+    showStatus('info', '✅ API Key 已儲存。');
+  }
+
+  // ── Sheets API fetch ───────────────────────────────────────
+  function extractSheetId(url) {
+    const m = url.match(/\/spreadsheets\/d\/([a-zA-Z0-9-_]+)/);
+    return m ? m[1] : null;
+  }
+
+  async function fetchSheetRows() {
+    const apiKey   = document.getElementById('apiKey').value.trim();
+    const sheetUrl = document.getElementById('sheetUrl').value.trim();
+
+    if (!apiKey)   throw new Error('請先輸入 Google API Key（步驟①）。');
+    if (!sheetUrl) throw new Error('請填入 Google Sheet 網址（步驟②）。');
+
+    const sheetId = extractSheetId(sheetUrl);
+    if (!sheetId)  throw new Error('無效的 Google Sheet 網址，請確認格式正確。');
+
+    const url = `https://sheets.googleapis.com/v4/spreadsheets/${sheetId}/values/A:Z?majorDimension=ROWS&key=${encodeURIComponent(apiKey)}`;
+    const res = await fetch(url);
+
+    if (res.status === 403) throw new Error('存取被拒（403）。\n請確認：\n・Sheet 已設為「知道連結的任何人可檢視」\n・API Key 有啟用 Google Sheets API');
+    if (res.status === 400) throw new Error('API Key 無效（400）。請確認 Key 正確且已啟用 Sheets API。');
+    if (res.status === 404) throw new Error('找不到試算表（404）。請確認網址正確。');
+    if (!res.ok) {
+      const body = await res.text().catch(() => '');
+      throw new Error(`API 錯誤 HTTP ${res.status}${body ? '：' + body.slice(0, 120) : ''}`);
+    }
+
+    const json = await res.json();
+    if (!json.values || !Array.isArray(json.values)) {
+      throw new Error('試算表資料為空，或尚未設為公開可讀。');
+    }
+    return json.values;
+  }
+
+  // ── Generate ───────────────────────────────────────────────
+  document.getElementById('btnGenerate').addEventListener('click', async () => {
+    const btn = document.getElementById('btnGenerate');
+    btn.disabled = true;
+    document.getElementById('progressBar').classList.add('active');
+    showStatus('info', '⏳ 讀取 Google Sheet 資料中...');
+
+    let rows;
+    try {
+      rows = await fetchSheetRows();
+    } catch (err) {
+      showStatus('error', '❌ ' + err.message);
+      btn.disabled = false;
+      document.getElementById('progressBar').classList.remove('active');
+      return;
+    }
+
+    const language = document.querySelector('input[name="language"]:checked').value;
+    const frameGap = parseInt(document.getElementById('frameGap').value) || 40;
+    const rowGap   = parseInt(document.getElementById('rowGap').value)   || 40;
+
+    persistSettings();
+    parent.postMessage({
+      pluginMessage: { type: 'generate', rows, language, frameGap, rowGap }
+    }, '*');
+  });
+
+  // ── Settings ───────────────────────────────────────────────
+  function persistSettings() {
+    const language = document.querySelector('input[name="language"]:checked')?.value || 'both';
+    parent.postMessage({
+      pluginMessage: {
+        type: 'saveSettings',
+        data: {
+          apiKey:   document.getElementById('apiKey').value.trim(),
+          sheetUrl: document.getElementById('sheetUrl').value.trim(),
+          language,
+          frameGap: document.getElementById('frameGap').value,
+          rowGap:   document.getElementById('rowGap').value,
+        }
+      }
+    }, '*');
+  }
+
+  function applySettings(data) {
+    if (!data) return;
+    if (data.apiKey)   document.getElementById('apiKey').value   = data.apiKey;
+    if (data.sheetUrl) document.getElementById('sheetUrl').value = data.sheetUrl;
+    if (data.frameGap) document.getElementById('frameGap').value = data.frameGap;
+    if (data.rowGap)   document.getElementById('rowGap').value   = data.rowGap;
+    if (data.language) {
+      const radio = document.querySelector(`input[name="language"][value="${data.language}"]`);
+      if (radio) {
+        radio.checked = true;
+        document.querySelectorAll('.radio-option').forEach(el => el.classList.remove('selected'));
+        radio.closest('.radio-option').classList.add('selected');
+      }
+    }
+    if (data.apiKey) collapseSetup();
+  }
+
+  // ── Messages from code.js ──────────────────────────────────
+  window.onmessage = (event) => {
+    const msg = event.data?.pluginMessage;
+    if (!msg) return;
+    switch (msg.type) {
+      case 'settings': applySettings(msg.data); break;
+      case 'status':   showStatus('info', msg.text); break;
+      case 'error':
+        showStatus('error', msg.text);
+        document.getElementById('btnGenerate').disabled = false;
+        document.getElementById('progressBar').classList.remove('active');
+        break;
+      case 'done':
+        showStatus('done', msg.text);
+        document.getElementById('btnGenerate').disabled = false;
+        document.getElementById('progressBar').classList.remove('active');
+        break;
+      case 'icon-progress': {
+        const pct = Math.floor((msg.current / msg.total) * 100);
+        document.getElementById('iconProgressBar').classList.add('active');
+        showIconStatus('info', `⏳ 處理中 ${msg.current}/${msg.total}...`);
+        break;
+      }
+      case 'icon-done':
+        document.getElementById('iconProgressBar').classList.remove('active');
+        showIconStatus('done', msg.text);
+        setIconBtnsDisabled(false);
+        break;
+      case 'icon-error':
+        document.getElementById('iconProgressBar').classList.remove('active');
+        showIconStatus('error', msg.text);
+        setIconBtnsDisabled(false);
+        break;
+      case 'fonts-loaded': {
+        var dl = document.getElementById('fontFamilyList');
+        dl.innerHTML = '';
+        msg.families.forEach(function(f) {
+          var opt = document.createElement('option');
+          opt.value = f;
+          dl.appendChild(opt);
+        });
+        document.getElementById('fontLoadingHint').textContent = '（' + msg.families.length + ' 個字型）';
+        break;
+      }
+      case 'style-done':
+        showStyleStatus('done', msg.text);
+        document.getElementById('btnApplyStyle').disabled = false;
+        break;
+      case 'style-error':
+        showStyleStatus('error', msg.text);
+        document.getElementById('btnApplyStyle').disabled = false;
+        break;
+    }
+  };
+
+  // ── 通用折疊函式 ───────────────────────────────────────────
+  function toggleSection(bodyId, toggleId) {
+    const body   = document.getElementById(bodyId);
+    const toggle = document.getElementById(toggleId);
+    const isHidden = body.classList.toggle('hidden');
+    toggle.classList.toggle('collapsed', isHidden);
+  }
+
+  // ── 後處理工具 ─────────────────────────────────────────────
+  function toggleIconSection() {
+    const body   = document.getElementById('icon-body');
+    const toggle = document.getElementById('icon-toggle');
+    const isOpen = !body.classList.contains('hidden');
+    body.classList.toggle('hidden', isOpen);
+    toggle.classList.toggle('collapsed', isOpen);
+  }
+
+  function showIconStatus(type, text) {
+    const box = document.getElementById('iconStatusBox');
+    box.className = `status-box ${type}`;
+    box.textContent = text;
+  }
+
+  function setIconBtnsDisabled(disabled) {
+    document.getElementById('btnIconsOnly').disabled = disabled;
+  }
+
+  document.getElementById('btnIconsOnly').addEventListener('click', () => {
+    setIconBtnsDisabled(true);
+    showIconStatus('info', '⏳ 執行換圖...');
+    parent.postMessage({ pluginMessage: { type: 'icons-only' } }, '*');
+  });
+
+  // ── 批次文字樣式 ────────────────────────────────────────────
+  function toggleStyleSection() {
+    const body   = document.getElementById('style-body');
+    const toggle = document.getElementById('style-toggle');
+    const isOpen = !body.classList.contains('hidden');
+    body.classList.toggle('hidden', isOpen);
+    toggle.classList.toggle('collapsed', isOpen);
+  }
+
+  function showStyleStatus(type, text) {
+    const box = document.getElementById('styleStatusBox');
+    box.className = 'status-box ' + type;
+    box.textContent = text;
+  }
+
+  // AUTO 時隱藏數值輸入
+  document.getElementById('lineHeightUnit').addEventListener('change', function () {
+    document.getElementById('newLineHeight').style.visibility =
+      this.value === 'AUTO' ? 'hidden' : 'visible';
+  });
+
+  document.getElementById('btnApplyStyle').addEventListener('click', () => {
+    const fontFamily    = document.getElementById('newFontFamily').value.trim() || null;
+    const fontStyle     = document.getElementById('newFontStyle').value || null;
+    const fontSizeRaw   = document.getElementById('newFontSize').value;
+    const fontSize      = fontSizeRaw !== '' ? parseFloat(fontSizeRaw) : null;
+    const lsRaw         = document.getElementById('newLetterSpacing').value;
+    const letterSpacing = lsRaw !== '' ? parseFloat(lsRaw) : null;
+    const lhUnit        = document.getElementById('lineHeightUnit').value;
+    const lhRaw         = document.getElementById('newLineHeight').value;
+    const lineHeight    = (lhUnit === 'AUTO') ? 'AUTO'
+                        : (lhRaw !== '' ? parseFloat(lhRaw) : null);
+
+    if (!fontFamily && !fontStyle && fontSize === null && letterSpacing === null && lineHeight === null) {
+      showStyleStatus('error', '⚠️ 請至少填寫一個要更改的欄位。');
+      return;
+    }
+
+    document.getElementById('btnApplyStyle').disabled = true;
+    showStyleStatus('info', '⏳ 套用中...');
+    parent.postMessage({
+      pluginMessage: {
+        type: 'change-text-style',
+        fontFamily, fontStyle, fontSize, letterSpacing, lineHeight,
+        lineHeightUnit: lhUnit,
+      }
+    }, '*');
+  });
+
+  // ── Radio buttons ──────────────────────────────────────────
+  document.querySelectorAll('input[name="language"]').forEach(radio => {
+    radio.addEventListener('change', () => {
+      document.querySelectorAll('.radio-option').forEach(el => el.classList.remove('selected'));
+      radio.closest('.radio-option').classList.add('selected');
+    });
+  });
+
+  // ── Init ───────────────────────────────────────────────────
+  function showStatus(type, text) {
+    const box = document.getElementById('statusBox');
+    box.className = `status-box ${type}`;
+    box.textContent = text;
+  }
+
+  parent.postMessage({ pluginMessage: { type: 'getSettings' } }, '*');
+</script>
+</body>
+</html>
