@@ -1,0 +1,8 @@
+{
+  "name": "遊戲說明書產生器 v3",
+  "id": "game-manual-generator",
+  "api": "1.0.0",
+  "main": "code.js",
+  "ui": "ui.html",
+  "editorType": ["figma"]
+}
