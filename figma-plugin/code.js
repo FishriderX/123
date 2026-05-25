@@ -390,7 +390,19 @@ async function handleIconsOnly() {
       continue;
     }
 
-    await ensureFont(textNode.fontName);
+    if (typeof textNode.fontName === 'symbol') {
+      // 混合字型：逐段載入每個 segment 使用的字型
+      try {
+        const fontSegs = textNode.getStyledTextSegments(['fontName']);
+        for (let si = 0; si < fontSegs.length; si++) {
+          if (typeof fontSegs[si].fontName !== 'symbol') {
+            await ensureFont(fontSegs[si].fontName);
+          }
+        }
+      } catch (_) {}
+    } else {
+      await ensureFont(textNode.fontName);
+    }
     const container   = textNode.parent;
     const originalIdx = container.children.indexOf(textNode);
     const nodeWidth   = textNode.width;
