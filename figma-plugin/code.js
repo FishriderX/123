@@ -194,7 +194,9 @@ async function generateManual({ rows, language, frameGap, rowGap }) {
             // 不設 layoutGrow，讓表格高度自動適應內容
             pageFrame.appendChild(tableF);
           }
-        } catch (_) {}
+        } catch (tableErr) {
+          figma.ui.postMessage({ type: 'status', text: `⚠️ ${pageLabel} 表格跳過：${tableErr.message}` });
+        }
 
         // 所有 children 加完後再設，避免 Figma 在 append 時自動恢復 true
         pageFrame.clipsContent = false;
