@@ -381,12 +381,13 @@ async function handleIconsOnly() {
   }
 
   let iconCount = 0;
+  let skippedCount = 0;
   for (const textNode of textNodes) {
     let anc = textNode.parent;
     while (anc && anc.type !== 'INSTANCE') anc = anc.parent;
     if (anc) {
-      figma.ui.postMessage({ type: 'icon-error', text: '⚠️ 偵測到文字在元件實例內，請先 Detach Instance' });
-      return;
+      skippedCount++;
+      continue;
     }
 
     await ensureFont(textNode.fontName);
@@ -557,7 +558,9 @@ async function handleIconsOnly() {
     container.insertChild(originalIdx, wrapper);
     textNode.remove();
   }
-  figma.ui.postMessage({ type: 'icon-done', text: `🎯 完成！共插入 ${iconCount} 個圖示` });
+  let doneText = `🎯 完成！共插入 ${iconCount} 個圖示`;
+  if (skippedCount > 0) doneText += `\n⚠️ ${skippedCount} 個節點在元件實例內已跳過（請先 Detach Instance）`;
+  figma.ui.postMessage({ type: 'icon-done', text: doneText });
 }
 
 // =============================================
