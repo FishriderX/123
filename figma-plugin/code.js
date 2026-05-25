@@ -126,7 +126,7 @@ async function generateManual({ rows, language, frameGap, rowGap }) {
         const ruleIdx  = lang === "sch" ? colIndex.ruleSch  : colIndex.ruleEN;
         const firstRow = pageRows[0];
         const titleText = (firstRow[titleIdx] || "").trim();
-        const ruleText  = findPrimaryRuleText(pageRows, ruleIdx);
+        const ruleText  = findPrimaryRuleText(pageRows, ruleIdx, colIndex);
 
         const pageFrame = figma.createFrame();
         pageFrame.name = `${pageLabel}_${langLabel}`;
@@ -184,7 +184,7 @@ async function generateManual({ rows, language, frameGap, rowGap }) {
           if (cellText) {
             tableF = buildTableFromCell(cellText, lang, fontZH, fontEN, FRAME_W - PADDING * 2);
           } else {
-            const tableInfo = detectTableInfo(pageRows, lang);
+            const tableInfo = detectTableInfo(pageRows, lang, colIndex);
             if (tableInfo) tableF = buildTableFrame(tableInfo, lang, fontZH, fontEN, FRAME_W - PADDING * 2);
           }
           if (tableF) {
@@ -234,12 +234,14 @@ function findColumns(headers) {
   const n = s => (s || "").replace(/\s/g, "").toLowerCase();
   const find = keys => headers.findIndex(h => keys.some(k => n(h).includes(n(k))));
   const idx = {
-    titleSch: find(["標題sch", "标题sch"]),
-    ruleSch:  find(["規則sch", "规则sch"]),
-    titleEN:  find(["標題en", "标题en", "titleen"]),
-    ruleEN:   find(["規則en", "规则en", "ruleen"]),
-    tableSch: find(["表格sch", "tablesch", "table sch"]),
-    tableEN:  find(["表格en",  "tableen",  "table en"]),
+    titleSch:   find(["標題sch", "标题sch"]),
+    ruleSch:    find(["規則sch", "规则sch"]),
+    titleEN:    find(["標題en", "标题en", "titleen"]),
+    ruleEN:     find(["規則en", "规则en", "ruleen"]),
+    tableSch:   find(["表格sch", "tablesch", "table sch"]),
+    tableEN:    find(["表格en",  "tableen",  "table en"]),
+    contentSch: find(["内容sch", "内容", "content"]),
+    imageSch:   find(["示意图sch", "示意图", "image", "圖示", "图示"]),
   };
   if (idx.titleSch === -1) idx.titleSch = idx.titleEN;
   if (idx.ruleSch  === -1) idx.ruleSch  = idx.ruleEN;
@@ -590,21 +592,29 @@ function groupPageRows(dataRows) {
 }
 
 // 從同一 PAGE 的多行中，找出主要規則文字行（排除表格資料行）
-function findPrimaryRuleText(pageRows, ruleIdx) {
-  const COL_CONTENT = 4;
-  const COL_IMAGE   = 3;
-  // 優先：内容Sch = "规则" 的行
-  const ruleRow = pageRows.find(r => {
-    const c = (r[COL_CONTENT] || "").trim();
-    return c === '规则' || c === '規則';
-  });
-  if (ruleRow) return (ruleRow[ruleIdx] || "").trim();
-  // 次選：内容Sch 為空 且 示意图Sch 不是 <bet> 格式
-  const mainRow = pageRows.find(r => {
-    const c   = (r[COL_CONTENT] || "").trim();
-    const img = (r[COL_IMAGE]   || "").trim();
-    return c === '' && !/^<\d+>$/.test(img);
-  });
+function findPrimaryRuleText(pageRows, ruleIdx, colIndex) {
+  const COL_CONTENT = (colIndex && colIndex.contentSch >= 0) ? colIndex.contentSch : -1;
+  const COL_IMAGE   = (colIndex && colIndex.imageSch   >= 0) ? colIndex.imageSch   : -1;
+
+  // 優先：内容欄 = "规则" 或 "規則" 的行
+  if (COL_CONTENT >= 0) {
+    const ruleRow = pageRows.find(r => {
+      const c = (r[COL_CONTENT] || "").trim();
+      return c === '规则' || c === '規則';
+    });
+    if (ruleRow) return (ruleRow[ruleIdx] || "").trim();
+  }
+
+  // 次選：内容欄為空 且 圖示欄不是 <bet> 格式
+  let mainRow;
+  if (COL_CONTENT >= 0 || COL_IMAGE >= 0) {
+    mainRow = pageRows.find(r => {
+      const c   = COL_CONTENT >= 0 ? (r[COL_CONTENT] || "").trim() : '';
+      const img = COL_IMAGE   >= 0 ? (r[COL_IMAGE]   || "").trim() : '';
+      return c === '' && !/^<\d+>$/.test(img);
+    });
+  }
+
   return ((mainRow || pageRows[0])[ruleIdx] || "").trim();
 }
 
@@ -612,22 +622,27 @@ function findPrimaryRuleText(pageRows, ruleIdx) {
 // 表格偵測
 // =============================================
 
-function detectTableInfo(pageRows, lang) {
-  const COL_CONTENT = 4;
-  const COL_IMAGE   = 3;
-  const ruleIdx = lang === "sch" ? 5 : 8;
+function detectTableInfo(pageRows, lang, colIndex) {
+  const COL_CONTENT = (colIndex && colIndex.contentSch >= 0) ? colIndex.contentSch : -1;
+  const COL_IMAGE   = (colIndex && colIndex.imageSch   >= 0) ? colIndex.imageSch   : -1;
+  const ruleColIdx  = colIndex ? (lang === "sch" ? colIndex.ruleSch : colIndex.ruleEN) : -1;
+  if (ruleColIdx < 0) return null;
 
-  // 賠率表：内容Sch = "赔率表"
-  const paytableRows = pageRows.filter(r => (r[COL_CONTENT] || "").trim() === '赔率表');
-  if (paytableRows.length > 0) return { type: 'paytable', rows: paytableRows, ruleIdx };
+  // 賠率表：内容欄 = "赔率表"
+  if (COL_CONTENT >= 0) {
+    const paytableRows = pageRows.filter(r => (r[COL_CONTENT] || "").trim() === '赔率表');
+    if (paytableRows.length > 0) return { type: 'paytable', rows: paytableRows, ruleIdx: ruleColIdx };
+  }
 
-  // 投注符號表：示意图Sch = <數字>
-  const betRows = pageRows.filter(r => /^<\d+>$/.test((r[COL_IMAGE] || "").trim()));
-  if (betRows.length > 0) return { type: 'bet_symbols', rows: betRows, allRows: pageRows, ruleIdx };
+  // 投注符號表：圖示欄 = <數字>
+  if (COL_IMAGE >= 0) {
+    const betRows = pageRows.filter(r => /^<\d+>$/.test((r[COL_IMAGE] || "").trim()));
+    if (betRows.length > 0) return { type: 'bet_symbols', rows: betRows, allRows: pageRows, ruleIdx: ruleColIdx };
+  }
 
-  // 資料表：规则Sch 含有「數字 ~ 數字」格式，且多行
-  const rangeRows = pageRows.filter(r => /\d+\s*[~～]\s*\d+/.test(r[ruleIdx] || ""));
-  if (rangeRows.length > 1) return { type: 'data_table', rows: rangeRows, ruleIdx };
+  // 資料表：規則欄含「數字 ~ 數字」格式，且多行
+  const rangeRows = pageRows.filter(r => /\d+\s*[~～]\s*\d+/.test(r[ruleColIdx] || ""));
+  if (rangeRows.length > 1) return { type: 'data_table', rows: rangeRows, ruleIdx: ruleColIdx };
 
   return null;
 }
