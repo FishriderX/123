@@ -480,12 +480,12 @@
         document.getElementById('btnApplyStyle').disabled = false;
         break;
       case 'bullet-done':
-        document.getElementById('bulletStatusBox').className = 'status-box status-done';
+        document.getElementById('bulletStatusBox').className = 'status-box done';
         document.getElementById('bulletStatusBox').textContent = msg.text;
         document.getElementById('btnFixBullet').disabled = false;
         break;
       case 'bullet-error':
-        document.getElementById('bulletStatusBox').className = 'status-box status-error';
+        document.getElementById('bulletStatusBox').className = 'status-box error';
         document.getElementById('bulletStatusBox').textContent = msg.text;
         document.getElementById('btnFixBullet').disabled = false;
         break;
@@ -528,7 +528,7 @@
   // ── 指定字元換字型 ──────────────────────────────────────────
   function showStyleStatus(type, text) {
     const box = document.getElementById('styleStatusBox');
-    box.className = 'status-box status-' + type;
+    box.className = 'status-box ' + type;
     box.textContent = text;
   }
 
