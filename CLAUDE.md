@@ -31,6 +31,13 @@
 - `makeTblCell` / `makeTblCellGrow`：cell.name = 'TBL_CELL'（換圖偵測用）
 - `pageFrame.clipsContent = false` 必須在所有 children append 後才設
 
+### 自動頁面類型偵測（v4.0）
+- `paytable_v2`：表格EN 含 `[sym] N-(V)` → `buildPaytableV2Frame`（自動合組同賠率符號）
+- `bet_symbols`：示意圖Sch = `<數字>` → `buildBetSymbolsFrameV2`（圖示化，含 makeXMark）
+- `special_symbols`：示意圖Sch = `[名稱]` → `buildSpecialSymbolsFrame`（P3 info cards，跳過預設標題）
+- `makeIconOrPlaceholder(name, size, font)`：先找同名 COMPONENT，找不到 → 灰色佔位框，`node.name='TBL_CELL'`
+- `makeXMark(size, font)`：橘紅色 ✕ 標記，`frame.name='TBL_CELL'`
+
 ### 換圖功能
 - `figma.root.findOne`（搜尋全檔案，支援跨頁面）
 - 在 TBL_CELL 內的 icon 自動縮放到 32px
