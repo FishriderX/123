@@ -38,6 +38,23 @@
 - `makeIconOrPlaceholder(name, size, font)`：先找同名 COMPONENT，找不到 → 灰色佔位框，`node.name='TBL_CELL'`
 - `makeXMark(size, font)`：橘紅色 ✕ 標記，`frame.name='TBL_CELL'`
 
+### ⚠️ 重要 Bug 修復紀錄（v4.0 — 2026-05-26）
+**問題**：P2（paytable_v2）的資料存放在「表格EN」欄，generate 流程中 `buildTableFromCell` 會優先搶先處理該欄資料，導致新的 `buildPaytableV2Frame` 從未被呼叫。
+**修復**：在 `generateManual` 的表格建立區段加入 `isNewType` 判斷；當偵測到 `paytable_v2` 或 `bet_symbols` 時，強制走 `buildTableFrame` 新路線，跳過舊的 `buildTableFromCell`。
+```js
+var isNewType = pageTableInfo && (
+  pageTableInfo.type === 'paytable_v2' ||
+  pageTableInfo.type === 'bet_symbols'
+);
+if (isNewType) {
+  tableF = buildTableFrame(pageTableInfo, ...);
+} else if (cellText) {
+  tableF = buildTableFromCell(cellText, ...);
+} else if (pageTableInfo) {
+  tableF = buildTableFrame(pageTableInfo, ...);
+}
+```
+
 ### 換圖功能
 - `figma.root.findOne`（搜尋全檔案，支援跨頁面）
 - 在 TBL_CELL 內的 icon 自動縮放到 32px
