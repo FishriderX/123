@@ -1,9 +1,10 @@
 // =============================================
 // 遊戲說明書產生器 v3 - Figma Plugin
-// v3.3 — 換圖：字元級 WRAP 排列
+// v4.0 — 自動表格頁面：P1 圖示化 / P2 賠率卡片自動合組 / P3 特殊符號資訊卡
+// v4.1 bugfix — buildTableFromCell 欄位分隔還原支援 Tab 或 2+空格（修復 P13 合併格子問題）
 // =============================================
 
-figma.showUI(__html__, { width: 520, height: 700, title: "遊戲說明書產生器 v3" });
+figma.showUI(__html__, { width: 520, height: 700, title: "遊戲說明書產生器 v4" });
 
 // 載入 Figma 現有字型清單並送給 UI
 figma.listAvailableFontsAsync().then(function(fonts) {
@@ -36,11 +37,8 @@ figma.ui.onmessage = async (msg) => {
     case "icons-only":
       await handleIconsOnly();
       break;
-    case "fix-bullet-font":
-      await handleFixBulletFont();
-      break;
-    case "replace-char-font":
-      await handleReplaceCharFont(msg);
+    case "change-text-style":
+      await handleChangeTextStyle(msg);
       break;
   }
 };
@@ -126,7 +124,7 @@ async function generateManual({ rows, language, frameGap, rowGap }) {
         const ruleIdx  = lang === "sch" ? colIndex.ruleSch  : colIndex.ruleEN;
         const firstRow = pageRows[0];
         const titleText = (firstRow[titleIdx] || "").trim();
-        const ruleText  = findPrimaryRuleText(pageRows, ruleIdx, colIndex);
+        const ruleText  = findPrimaryRuleText(pageRows, ruleIdx);
 
         const pageFrame = figma.createFrame();
         pageFrame.name = `${pageLabel}_${langLabel}`;
@@ -168,38 +166,54 @@ async function generateManual({ rows, language, frameGap, rowGap }) {
         ruleNode.layoutAlign = "STRETCH";
         ruleNode.layoutGrow = 1;
         ruleNode.textAutoResize = "NONE";
-        // 設定 bullet 縮排（Figma unordered list 提供自動 hanging indent）
         for (const { start, end } of bulletRanges) {
           ruleNode.setRangeListOptions(start, end, { type: 'UNORDERED' });
         }
 
-        pageFrame.appendChild(titleNode);
-        pageFrame.appendChild(ruleNode);
+        // ── P3 特殊分支：special_symbols 整頁為 info cards，跳過預設標題/規則 ──
+        var pageTableInfo = detectTableInfo(pageRows, lang);
+        if (pageTableInfo && pageTableInfo.type === 'special_symbols') {
+          var cardsFrame = buildSpecialSymbolsFrame(
+            pageTableInfo.rows, pageTableInfo.ruleIdx, lang,
+            lang === "sch" ? fontZH : fontEN,
+            FRAME_W - PADDING * 2
+          );
+          if (cardsFrame) {
+            cardsFrame.layoutAlign = 'STRETCH';
+            cardsFrame.layoutGrow = 1;
+            pageFrame.appendChild(cardsFrame);
+          }
+        } else {
+          // 正常流程：大標題 + 規則文字 + 可選表格
+          pageFrame.appendChild(titleNode);
+          pageFrame.appendChild(ruleNode);
 
-        // 表格生成：優先使用專屬 Table 欄，無則偵測多行格式
-        try {
-          const tblIdx = lang === "sch" ? colIndex.tableSch : colIndex.tableEN;
-          const cellText = (tblIdx >= 0) ? (firstRow[tblIdx] || "").replace(/\s+$/, '') : "";
-          let tableF = null;
-          if (cellText) {
-            tableF = buildTableFromCell(cellText, lang, fontZH, fontEN, FRAME_W - PADDING * 2);
-          } else {
-            const tableInfo = detectTableInfo(pageRows, lang, colIndex);
-            if (tableInfo) tableF = buildTableFrame(tableInfo, lang, fontZH, fontEN, FRAME_W - PADDING * 2);
-          }
-          if (tableF) {
-            ruleNode.layoutGrow = 0;
-            ruleNode.textAutoResize = "HEIGHT";
-            tableF.layoutAlign = "STRETCH";
-            // 不設 layoutGrow，讓表格高度自動適應內容
-            pageFrame.appendChild(tableF);
-          }
-        } catch (tableErr) {
-          figma.ui.postMessage({ type: 'status', text: `⚠️ ${pageLabel} 表格跳過：${tableErr.message}` });
+          try {
+            const tblIdx = lang === "sch" ? colIndex.tableSch : colIndex.tableEN;
+            const cellText = (tblIdx >= 0) ? (firstRow[tblIdx] || "").trim() : "";
+            var tableF = null;
+            // 新型表格（paytable_v2 / bet_symbols）優先用 buildTableFrame，
+            // 避免被 buildTableFromCell 搶先處理導致格式錯誤
+            var isNewType = pageTableInfo && (
+              pageTableInfo.type === 'paytable_v2' ||
+              pageTableInfo.type === 'bet_symbols'
+            );
+            if (isNewType) {
+              tableF = buildTableFrame(pageTableInfo, lang, fontZH, fontEN, FRAME_W - PADDING * 2);
+            } else if (cellText) {
+              tableF = buildTableFromCell(cellText, lang, fontZH, fontEN, FRAME_W - PADDING * 2);
+            } else if (pageTableInfo) {
+              tableF = buildTableFrame(pageTableInfo, lang, fontZH, fontEN, FRAME_W - PADDING * 2);
+            }
+            if (tableF) {
+              ruleNode.layoutGrow = 0;
+              ruleNode.textAutoResize = "HEIGHT";
+              tableF.layoutAlign = "STRETCH";
+              pageFrame.appendChild(tableF);
+            }
+          } catch (_) {}
         }
 
-        // 所有 children 加完後再設，避免 Figma 在 append 時自動恢復 true
-        pageFrame.clipsContent = false;
         outerFrame.appendChild(pageFrame);
         totalGenerated++;
       }
@@ -236,14 +250,12 @@ function findColumns(headers) {
   const n = s => (s || "").replace(/\s/g, "").toLowerCase();
   const find = keys => headers.findIndex(h => keys.some(k => n(h).includes(n(k))));
   const idx = {
-    titleSch:   find(["標題sch", "标题sch"]),
-    ruleSch:    find(["規則sch", "规则sch"]),
-    titleEN:    find(["標題en", "标题en", "titleen"]),
-    ruleEN:     find(["規則en", "规则en", "ruleen"]),
-    tableSch:   find(["表格sch", "tablesch", "table sch"]),
-    tableEN:    find(["表格en",  "tableen",  "table en"]),
-    contentSch: find(["内容sch", "内容", "content"]),
-    imageSch:   find(["示意图sch", "示意图", "image", "圖示", "图示"]),
+    titleSch: find(["標題sch", "标题sch"]),
+    ruleSch:  find(["規則sch", "规则sch"]),
+    titleEN:  find(["標題en", "标题en", "titleen"]),
+    ruleEN:   find(["規則en", "规则en", "ruleen"]),
+    tableSch: find(["表格sch", "tablesch", "table sch"]),
+    tableEN:  find(["表格en",  "tableen",  "table en"]),
   };
   if (idx.titleSch === -1) idx.titleSch = idx.titleEN;
   if (idx.ruleSch  === -1) idx.ruleSch  = idx.ruleEN;
@@ -278,56 +290,6 @@ function processBulletText(text) {
 // =============================================
 // 後處理工具：僅換圖
 // =============================================
-
-// =============================================
-// 後處理工具：修正圓點字型 → Noto Sans TC
-// =============================================
-
-async function handleFixBulletFont() {
-  const selection = figma.currentPage.selection;
-  if (selection.length === 0) {
-    figma.ui.postMessage({ type: 'bullet-error', text: '⚠️ 請先選取至少一個節點' });
-    return;
-  }
-
-  const fontTC = { family: "Noto Sans TC", style: "Regular" };
-  try {
-    await figma.loadFontAsync(fontTC);
-  } catch (e) {
-    figma.ui.postMessage({ type: 'bullet-error', text: '⚠️ 無法載入 Noto Sans TC，請確認字型已安裝' });
-    return;
-  }
-
-  // 涵蓋各種常見圓點/bullet unicode 字元
-  const BULLET_RE = /[·•‧・･∙▪◦]/;
-
-  const textNodes = [];
-  for (const node of selection) {
-    if (node.type === 'TEXT') textNodes.push(node);
-    if ('findAll' in node) textNodes.push(...node.findAll(n => n.type === 'TEXT'));
-  }
-
-  let fixCount = 0;
-  for (const tn of textNodes) {
-    const chars = tn.characters;
-    // 先載入該節點所有用到的字型
-    try {
-      const fonts = tn.getStyledTextSegments(['fontName']).map(s => s.fontName);
-      for (const f of fonts) { try { await figma.loadFontAsync(f); } catch (_) {} }
-    } catch (_) {}
-
-    for (let i = 0; i < chars.length; i++) {
-      if (BULLET_RE.test(chars[i])) {
-        try {
-          tn.setRangeFontName(i, i + 1, fontTC);
-          fixCount++;
-        } catch (_) {}
-      }
-    }
-  }
-
-  figma.ui.postMessage({ type: 'bullet-done', text: `✅ 完成！共修正 ${fixCount} 個圓點符號 → Noto Sans TC` });
-}
 
 function isInComponent(node) {
   let current = node.parent;
@@ -385,28 +347,15 @@ async function handleIconsOnly() {
   }
 
   let iconCount = 0;
-  let skippedCount = 0;
   for (const textNode of textNodes) {
     let anc = textNode.parent;
     while (anc && anc.type !== 'INSTANCE') anc = anc.parent;
     if (anc) {
-      skippedCount++;
-      continue;
+      figma.ui.postMessage({ type: 'icon-error', text: '⚠️ 偵測到文字在元件實例內，請先 Detach Instance' });
+      return;
     }
 
-    if (typeof textNode.fontName === 'symbol') {
-      // 混合字型：逐段載入每個 segment 使用的字型
-      try {
-        const fontSegs = textNode.getStyledTextSegments(['fontName']);
-        for (let si = 0; si < fontSegs.length; si++) {
-          if (typeof fontSegs[si].fontName !== 'symbol') {
-            await ensureFont(fontSegs[si].fontName);
-          }
-        }
-      } catch (_) {}
-    } else {
-      await ensureFont(textNode.fontName);
-    }
+    await ensureFont(textNode.fontName);
     const container   = textNode.parent;
     const originalIdx = container.children.indexOf(textNode);
     const nodeWidth   = textNode.width;
@@ -428,7 +377,7 @@ async function handleIconsOnly() {
 
     const lines = textNode.characters.split('\n');
 
-    // 偵測哪些行是 bullet list item（用 listOptions，與 setRangeListOptions 對應）
+    // 偵測哪些行是 bullet list item
     const bulletLineSet = new Set();
     try {
       const segs = textNode.getStyledTextSegments(['listOptions']);
@@ -444,11 +393,6 @@ async function handleIconsOnly() {
     const indentWidth = 24; // 懸掛縮排的透明間距寬度（px）
     const ITEM_GAP = 10;   // token 之間的間距
 
-    // 預先載入 Noto Sans TC（供換圖時 · 符號使用，有則用，無則用原字型）
-    const fontTC = { family: "Noto Sans TC", style: "Regular" };
-    let tcLoaded = false;
-    try { await figma.loadFontAsync(fontTC); tcLoaded = true; } catch (_) {}
-
     for (let i = 0; i < lines.length; i++) {
       const isBullet = bulletLineSet.has(i);
 
@@ -457,7 +401,6 @@ async function handleIconsOnly() {
 
       if (isBullet) {
         const bt = await makeTextNode(textNode, '· ', false);
-        if (tcLoaded) bt.fontName = fontTC;
         items.push({ node: bt, width: bt.width });
       }
 
@@ -467,7 +410,7 @@ async function handleIconsOnly() {
       for (const part of parts) {
         const tagMatch = /^\[([^\]]+)\]$/.exec(part);
         if (tagMatch) {
-          const comp = figma.root.findOne(n => n.type === 'COMPONENT' && n.name === tagMatch[1]);
+          const comp = figma.currentPage.findOne(n => n.type === 'COMPONENT' && n.name === tagMatch[1]);
           if (comp) {
             const inst = comp.createInstance();
             inst.name = 'icon_' + tagMatch[1];
@@ -556,27 +499,10 @@ async function handleIconsOnly() {
       wrapper.appendChild(lineChunk);
     }
 
-    // 如果文字在表格格子（TBL_CELL）內，縮放 icon 到適合表格的高度
-    if (container.name === 'TBL_CELL') {
-      const TARGET_H = 32; // 表格 icon 目標高度（px）
-      function scaleIconsInNode(node) {
-        if (node.type === 'INSTANCE' && node.height > TARGET_H) {
-          node.rescale(TARGET_H / node.height);
-        } else if ('children' in node) {
-          for (var ci = 0; ci < node.children.length; ci++) {
-            scaleIconsInNode(node.children[ci]);
-          }
-        }
-      }
-      scaleIconsInNode(wrapper);
-    }
-
     container.insertChild(originalIdx, wrapper);
     textNode.remove();
   }
-  let doneText = `🎯 完成！共插入 ${iconCount} 個圖示`;
-  if (skippedCount > 0) doneText += `\n⚠️ ${skippedCount} 個節點在元件實例內已跳過（請先 Detach Instance）`;
-  figma.ui.postMessage({ type: 'icon-done', text: doneText });
+  figma.ui.postMessage({ type: 'icon-done', text: `🎯 完成！共插入 ${iconCount} 個圖示` });
 }
 
 // =============================================
@@ -594,29 +520,21 @@ function groupPageRows(dataRows) {
 }
 
 // 從同一 PAGE 的多行中，找出主要規則文字行（排除表格資料行）
-function findPrimaryRuleText(pageRows, ruleIdx, colIndex) {
-  const COL_CONTENT = (colIndex && colIndex.contentSch >= 0) ? colIndex.contentSch : -1;
-  const COL_IMAGE   = (colIndex && colIndex.imageSch   >= 0) ? colIndex.imageSch   : -1;
-
-  // 優先：内容欄 = "规则" 或 "規則" 的行
-  if (COL_CONTENT >= 0) {
-    const ruleRow = pageRows.find(r => {
-      const c = (r[COL_CONTENT] || "").trim();
-      return c === '规则' || c === '規則';
-    });
-    if (ruleRow) return (ruleRow[ruleIdx] || "").trim();
-  }
-
-  // 次選：内容欄為空 且 圖示欄不是 <bet> 格式
-  let mainRow;
-  if (COL_CONTENT >= 0 || COL_IMAGE >= 0) {
-    mainRow = pageRows.find(r => {
-      const c   = COL_CONTENT >= 0 ? (r[COL_CONTENT] || "").trim() : '';
-      const img = COL_IMAGE   >= 0 ? (r[COL_IMAGE]   || "").trim() : '';
-      return c === '' && !/^<\d+>$/.test(img);
-    });
-  }
-
+function findPrimaryRuleText(pageRows, ruleIdx) {
+  const COL_CONTENT = 4;
+  const COL_IMAGE   = 3;
+  // 優先：内容Sch = "规则" 的行
+  const ruleRow = pageRows.find(r => {
+    const c = (r[COL_CONTENT] || "").trim();
+    return c === '规则' || c === '規則';
+  });
+  if (ruleRow) return (ruleRow[ruleIdx] || "").trim();
+  // 次選：内容Sch 為空 且 示意图Sch 不是 <bet> 格式
+  const mainRow = pageRows.find(r => {
+    const c   = (r[COL_CONTENT] || "").trim();
+    const img = (r[COL_IMAGE]   || "").trim();
+    return c === '' && !/^<\d+>$/.test(img);
+  });
   return ((mainRow || pageRows[0])[ruleIdx] || "").trim();
 }
 
@@ -624,27 +542,49 @@ function findPrimaryRuleText(pageRows, ruleIdx, colIndex) {
 // 表格偵測
 // =============================================
 
-function detectTableInfo(pageRows, lang, colIndex) {
-  const COL_CONTENT = (colIndex && colIndex.contentSch >= 0) ? colIndex.contentSch : -1;
-  const COL_IMAGE   = (colIndex && colIndex.imageSch   >= 0) ? colIndex.imageSch   : -1;
-  const ruleColIdx  = colIndex ? (lang === "sch" ? colIndex.ruleSch : colIndex.ruleEN) : -1;
-  if (ruleColIdx < 0) return null;
+function detectTableInfo(pageRows, lang) {
+  var COL_CONTENT  = 4;
+  var COL_IMAGE    = 3;
+  var COL_TABLE_EN = 10;
+  var ruleIdx = lang === "sch" ? 5 : 8;
 
-  // 賠率表：内容欄 = "赔率表"
-  if (COL_CONTENT >= 0) {
-    const paytableRows = pageRows.filter(r => (r[COL_CONTENT] || "").trim() === '赔率表');
-    if (paytableRows.length > 0) return { type: 'paytable', rows: paytableRows, ruleIdx: ruleColIdx };
+  // Priority 1: PAYTABLE V2 — 表格EN 欄含 [sym] N-(V) 格式
+  var firstTableCell = ((pageRows[0] && pageRows[0][COL_TABLE_EN]) || "").trim();
+  if (firstTableCell && /\[[^\]]+\]\s*\(?\d+\)?\s*-\s*\(\d+\)/.test(firstTableCell)) {
+    return { type: 'paytable_v2', rows: pageRows, ruleIdx: ruleIdx };
   }
 
-  // 投注符號表：圖示欄 = <數字>
-  if (COL_IMAGE >= 0) {
-    const betRows = pageRows.filter(r => /^<\d+>$/.test((r[COL_IMAGE] || "").trim()));
-    if (betRows.length > 0) return { type: 'bet_symbols', rows: betRows, allRows: pageRows, ruleIdx: ruleColIdx };
+  // Priority 2: SYMBOLS PER PLAY — 示意圖Sch 全部為 <數字>
+  var betRows = pageRows.filter(function(r) {
+    return /^<\d+>$/.test((r[COL_IMAGE] || "").trim());
+  });
+  if (betRows.length > 0) {
+    return { type: 'bet_symbols', rows: betRows, allRows: pageRows, ruleIdx: ruleIdx };
   }
 
-  // 資料表：規則欄含「數字 ~ 數字」格式，且多行
-  const rangeRows = pageRows.filter(r => /\d+\s*[~～]\s*\d+/.test(r[ruleColIdx] || ""));
-  if (rangeRows.length > 1) return { type: 'data_table', rows: rangeRows, ruleIdx: ruleColIdx };
+  // Priority 3: SPECIAL SYMBOLS — 示意圖Sch 為 [符號名稱] 格式
+  var specialRows = pageRows.filter(function(r) {
+    return /^\[[^\]]+\]$/.test((r[COL_IMAGE] || "").trim());
+  });
+  if (specialRows.length > 0) {
+    return { type: 'special_symbols', rows: specialRows, ruleIdx: ruleIdx };
+  }
+
+  // 既有：赔率表（内容Sch = "赔率表"）
+  var paytableRows = pageRows.filter(function(r) {
+    return (r[COL_CONTENT] || "").trim() === '赔率表';
+  });
+  if (paytableRows.length > 0) {
+    return { type: 'paytable', rows: paytableRows, ruleIdx: ruleIdx };
+  }
+
+  // 既有：資料範圍表（規則含 數字~數字）
+  var rangeRows = pageRows.filter(function(r) {
+    return /\d+\s*[~～]\s*\d+/.test(r[ruleIdx] || "");
+  });
+  if (rangeRows.length > 1) {
+    return { type: 'data_table', rows: rangeRows, ruleIdx: ruleIdx };
+  }
 
   return null;
 }
@@ -654,11 +594,83 @@ function detectTableInfo(pageRows, lang, colIndex) {
 // =============================================
 
 function buildTableFrame(tableInfo, lang, fontZH, fontEN, contentWidth) {
-  const font = lang === "sch" ? fontZH : fontEN;
-  if (tableInfo.type === 'paytable')    return buildPaytableFrame(tableInfo.rows, tableInfo.ruleIdx, font, contentWidth);
-  if (tableInfo.type === 'bet_symbols') return buildBetSymbolsFrame(tableInfo.rows, tableInfo.allRows, tableInfo.ruleIdx, lang, font, contentWidth);
-  if (tableInfo.type === 'data_table')  return buildDataTableFrame(tableInfo.rows, tableInfo.ruleIdx, font, contentWidth);
+  var font = lang === "sch" ? fontZH : fontEN;
+  if (tableInfo.type === 'paytable_v2')     return buildPaytableV2Frame(tableInfo.rows, tableInfo.ruleIdx, font, contentWidth);
+  if (tableInfo.type === 'paytable')         return buildPaytableFrame(tableInfo.rows, tableInfo.ruleIdx, font, contentWidth);
+  if (tableInfo.type === 'bet_symbols')      return buildBetSymbolsFrameV2(tableInfo.rows, tableInfo.allRows, tableInfo.ruleIdx, lang, font, contentWidth);
+  if (tableInfo.type === 'special_symbols')  return buildSpecialSymbolsFrame(tableInfo.rows, tableInfo.ruleIdx, lang, font, contentWidth);
+  if (tableInfo.type === 'data_table')       return buildDataTableFrame(tableInfo.rows, tableInfo.ruleIdx, font, contentWidth);
   return null;
+}
+
+// ─── 圖示 / 佔位框 helper ──────────────────────────────────────
+// symbolName: 符號名稱字串，如 "M1"、"WW"（不含括號）
+// size: 正方形邊長（px）
+// font: 已載入的字型物件
+function makeIconOrPlaceholder(symbolName, size, font) {
+  var cleanName = (symbolName || '').replace(/[\[\]\{\}]/g, '').trim();
+  // 嘗試在整個 Figma 檔案中找同名 COMPONENT
+  var comp = figma.root.findOne(function(n) {
+    return n.type === 'COMPONENT' && n.name === cleanName;
+  });
+  var node;
+  if (comp) {
+    var inst = comp.createInstance();
+    var maxDim = Math.max(inst.width, inst.height);
+    if (maxDim > 0) {
+      var scale = size / maxDim;
+      inst.resize(
+        Math.round(inst.width * scale),
+        Math.round(inst.height * scale)
+      );
+    }
+    node = inst;
+  } else {
+    // fallback：灰色佔位框 + 名稱文字
+    var f = figma.createFrame();
+    f.resize(size, size);
+    f.layoutMode = 'VERTICAL';
+    f.primaryAxisSizingMode = 'FIXED';
+    f.counterAxisSizingMode = 'FIXED';
+    f.primaryAxisAlignItems = 'CENTER';
+    f.counterAxisAlignItems = 'CENTER';
+    f.fills = [{ type: 'SOLID', color: { r: 0.30, g: 0.28, b: 0.38 } }];
+    f.cornerRadius = 6;
+    var t = figma.createText();
+    t.fontName = font;
+    t.fontSize = Math.max(10, Math.floor(size * 0.20));
+    t.characters = cleanName || '?';
+    t.fills = [{ type: 'SOLID', color: { r: 0.80, g: 0.78, b: 0.90 } }];
+    t.textAlignHorizontal = 'CENTER';
+    t.textAutoResize = 'WIDTH_AND_HEIGHT';
+    f.appendChild(t);
+    node = f;
+  }
+  node.name = 'TBL_CELL'; // 供換圖功能偵測
+  return node;
+}
+
+// 建立橘紅色 ✕ 標記 frame（P1 移除符號用）
+function makeXMark(size, font) {
+  var f = figma.createFrame();
+  f.resize(size, size);
+  f.layoutMode = 'VERTICAL';
+  f.primaryAxisSizingMode = 'FIXED';
+  f.counterAxisSizingMode = 'FIXED';
+  f.primaryAxisAlignItems = 'CENTER';
+  f.counterAxisAlignItems = 'CENTER';
+  f.fills = [{ type: 'SOLID', color: { r: 0.65, g: 0.12, b: 0.08 } }];
+  f.cornerRadius = 4;
+  var t = figma.createText();
+  t.fontName = font;
+  t.fontSize = Math.floor(size * 0.55);
+  t.characters = '✕'; // ✕
+  t.fills = [{ type: 'SOLID', color: { r: 1, g: 1, b: 1 } }];
+  t.textAlignHorizontal = 'CENTER';
+  t.textAutoResize = 'WIDTH_AND_HEIGHT';
+  f.appendChild(t);
+  f.name = 'TBL_CELL';
+  return f;
 }
 
 // ─── 共用儲存格建立 ───────────────────────────────────────────
@@ -668,7 +680,7 @@ var TBL_CELL_FILL = [{ type: 'SOLID', color: { r: 0, g: 0, b: 0 }, opacity: 0.45
 
 // 列容器：純透明，格線由真實 separator frame 提供
 function makeTblRow() {
-  const row = figma.createFrame();
+  var row = figma.createFrame();
   row.layoutMode = 'HORIZONTAL';
   row.primaryAxisSizingMode = 'AUTO';
   row.counterAxisSizingMode = 'AUTO';
@@ -684,7 +696,7 @@ function makeTblRow() {
 
 // 格子：45% 透明黑色 fill，padding 在格子上
 function makeTblCell(width, text, font, fontSize, isHeader, align) {
-  const cell = figma.createFrame();
+  var cell = figma.createFrame();
   cell.name = 'TBL_CELL';
   cell.layoutMode = 'VERTICAL';
   cell.resize(width, 1);
@@ -698,7 +710,7 @@ function makeTblCell(width, text, font, fontSize, isHeader, align) {
   cell.fills = TBL_CELL_FILL;
   cell.strokes = [];
   cell.clipsContent = false;
-  const t = figma.createText();
+  var t = figma.createText();
   t.fontName = font;
   t.fontSize = fontSize;
   t.characters = (text && text.trim()) ? text : " ";
@@ -712,7 +724,7 @@ function makeTblCell(width, text, font, fontSize, isHeader, align) {
 
 // 最後一欄（grow 格子）
 function makeTblCellGrow(text, font, fontSize, isHeader) {
-  const cell = figma.createFrame();
+  var cell = figma.createFrame();
   cell.name = 'TBL_CELL';
   cell.layoutMode = 'VERTICAL';
   cell.primaryAxisSizingMode = 'AUTO';
@@ -726,7 +738,7 @@ function makeTblCellGrow(text, font, fontSize, isHeader) {
   cell.fills = TBL_CELL_FILL;
   cell.strokes = [];
   cell.clipsContent = false;
-  const t = figma.createText();
+  var t = figma.createText();
   t.fontName = font;
   t.fontSize = fontSize;
   t.characters = (text && text.trim()) ? text : " ";
@@ -756,7 +768,7 @@ function makeHSep() {
   return sep;
 }
 
-// 表格容器共用設定
+// 表格容器共用設定：透明 fill + 橘色 OUTSIDE stroke
 function makeTblContainer(width) {
   var tf = figma.createFrame();
   tf.layoutMode = 'VERTICAL';
@@ -786,7 +798,6 @@ function buildTableFromCell(cellText, lang, fontZH, fontEN, contentWidth) {
   const rawRows = cellText.split('\n').map(function(l) {
     var normalized = l.replace(/\t/g, '  ');
     var cells = normalized.split(/  +/).map(function(c) { return (c || "").trim(); });
-    // 截尾端空白欄
     var last = cells.length - 1;
     while (last > 0 && !cells[last]) last--;
     return cells.slice(0, last + 1);
@@ -946,6 +957,7 @@ function buildTwoColTableFromCell(rows, font, contentWidth) {
 
 function buildMultiColTableFromCell(rows, font, contentWidth) {
   var tf = makeTblContainer(contentWidth);
+
   // 計算欄數（依各列實際長度，trailing empty 已在 buildTableFromCell 截掉）
   var maxCols = Math.max.apply(null, rows.map(function(r) { return r.length; }));
   var BET_W = 160;
@@ -954,7 +966,6 @@ function buildMultiColTableFromCell(rows, font, contentWidth) {
 
   for (var i = 0; i < rows.length; i++) {
     var row = rows[i];
-    var isHeader = i === 0;
     var dataRow = makeTblRow();
     dataRow.resize(contentWidth, 1);
     dataRow.primaryAxisSizingMode = 'FIXED';
@@ -988,6 +999,178 @@ function buildMultiColTableFromCell(rows, font, contentWidth) {
     if (i < rows.length - 1) tf.appendChild(makeHSep());
   }
   return tf;
+}
+
+// ─── P2：PAYTABLE V2（解析 [sym] N-(V) 格式，自動合組）────────
+function buildPaytableV2Frame(pageRows, ruleIdx, font, contentWidth) {
+  var COL_TABLE_EN = 10;
+
+  // 找 表格EN 欄內容
+  var tableCell = '';
+  for (var ri = 0; ri < pageRows.length; ri++) {
+    var c = ((pageRows[ri] && pageRows[ri][COL_TABLE_EN]) || "").trim();
+    if (c) { tableCell = c; break; }
+  }
+  if (!tableCell) return null;
+
+  // ── Step 1：解析所有 [sym] count-(value) 條目 ──
+  var payouts = {};   // sym → [{count, val}, ...]
+  var symOrder = [];
+  var re = /\[([^\]]+)\]\s*\(?(\d+)\)?\s*-\s*\((\d+)\)/g;
+  var lines = tableCell.split('\n');
+  for (var li = 0; li < lines.length; li++) {
+    var cols = lines[li].split('\t');
+    for (var ci = 0; ci < cols.length; ci++) {
+      re.lastIndex = 0;
+      var cellStr = (cols[ci] || "").trim();
+      var m;
+      while ((m = re.exec(cellStr)) !== null) {
+        var sym = m[1];
+        if (!payouts[sym]) { payouts[sym] = []; symOrder.push(sym); }
+        payouts[sym].push({ count: parseInt(m[2], 10), val: parseInt(m[3], 10) });
+      }
+    }
+  }
+  if (symOrder.length === 0) return null;
+
+  // 每個符號的賠率按 count 由大到小排序
+  for (var s in payouts) {
+    payouts[s].sort(function(a, b) { return b.count - a.count; });
+  }
+
+  // ── Step 2：建立賠率指紋並分組 ──
+  function fingerprint(sym) {
+    return payouts[sym].map(function(p) { return p.count + ':' + p.val; }).join('|');
+  }
+  var groups = {};      // fingerprint → [sym, ...]
+  var groupOrder = [];
+  for (var si = 0; si < symOrder.length; si++) {
+    var fp = fingerprint(symOrder[si]);
+    if (!groups[fp]) { groups[fp] = []; groupOrder.push(fp); }
+    groups[fp].push(symOrder[si]);
+  }
+
+  // 排序：個別符號（size=1）優先，再按最高賠率值降序
+  groupOrder.sort(function(a, b) {
+    var aLen = groups[a].length, bLen = groups[b].length;
+    if (aLen !== bLen) return aLen - bLen;
+    return payouts[groups[b][0]][0].val - payouts[groups[a][0]][0].val;
+  });
+
+  var individualFPs = groupOrder.filter(function(fp) { return groups[fp].length === 1; });
+  var groupFPs      = groupOrder.filter(function(fp) { return groups[fp].length > 1;  });
+
+  var GAP           = 16;
+  var ICON_SIZE_IND = 80;
+  var ICON_SIZE_GRP = 64;
+
+  // ── Step 3：製作單張賠率卡 ──
+  function makePayCard(syms, pouts, cardW, iconSize) {
+    var card = figma.createFrame();
+    card.layoutMode = 'VERTICAL';
+    card.resize(cardW, 1);
+    card.primaryAxisSizingMode = 'AUTO';
+    card.counterAxisSizingMode = 'FIXED';
+    card.primaryAxisAlignItems = 'CENTER';
+    card.counterAxisAlignItems = 'CENTER';
+    card.itemSpacing = 8;
+    card.paddingTop = card.paddingBottom = 14;
+    card.paddingLeft = card.paddingRight = 10;
+    card.fills  = [{ type: 'SOLID', color: { r: 0.18, g: 0.15, b: 0.28 } }];
+    card.strokes = [{ type: 'SOLID', color: { r: 0.90, g: 0.58, b: 0.08 } }];
+    card.strokeWeight = 1;
+    card.strokeAlign  = 'INSIDE';
+    card.cornerRadius = 8;
+
+    // 圖示列
+    var iconRow = figma.createFrame();
+    iconRow.layoutMode = 'HORIZONTAL';
+    iconRow.primaryAxisSizingMode = 'AUTO';
+    iconRow.counterAxisSizingMode = 'AUTO';
+    iconRow.primaryAxisAlignItems = 'CENTER';
+    iconRow.counterAxisAlignItems = 'CENTER';
+    iconRow.itemSpacing = 8;
+    iconRow.fills = [];
+    for (var xi = 0; xi < syms.length; xi++) {
+      iconRow.appendChild(makeIconOrPlaceholder(syms[xi], iconSize, font));
+    }
+    card.appendChild(iconRow);
+
+    // 橘色分隔線
+    var div = figma.createFrame();
+    div.resize(Math.max(40, cardW - 20), 1);
+    div.primaryAxisSizingMode = 'FIXED';
+    div.counterAxisSizingMode = 'FIXED';
+    div.fills = [{ type: 'SOLID', color: { r: 0.90, g: 0.58, b: 0.08 } }];
+    card.appendChild(div);
+
+    // 賠率文字
+    var payLines = pouts.map(function(p) { return p.count + ' : ' + p.val; }).join('\n');
+    var payText = figma.createText();
+    payText.fontName = font;
+    payText.fontSize = 17;
+    payText.characters = payLines;
+    payText.fills = [{ type: 'SOLID', color: { r: 1, g: 1, b: 1 } }];
+    payText.textAlignHorizontal = 'CENTER';
+    payText.textAutoResize = 'HEIGHT';
+    payText.layoutAlign = 'STRETCH';
+    card.appendChild(payText);
+
+    return card;
+  }
+
+  // ── Step 4：建立整體容器 ──
+  var container = figma.createFrame();
+  container.layoutMode = 'VERTICAL';
+  container.primaryAxisSizingMode = 'AUTO';
+  container.counterAxisSizingMode = 'FIXED';
+  container.resize(contentWidth, 1);
+  container.itemSpacing = GAP;
+  container.fills = [];
+
+  // 個別符號行（每行最多 5 張）
+  if (individualFPs.length > 0) {
+    var indChunks = chunkArray(individualFPs, 5);
+    for (var ic = 0; ic < indChunks.length; ic++) {
+      var chunk = indChunks[ic];
+      var n = chunk.length;
+      var cardW = Math.floor((contentWidth - GAP * (n - 1)) / n);
+      var rowF = figma.createFrame();
+      rowF.layoutMode = 'HORIZONTAL';
+      rowF.primaryAxisSizingMode = 'AUTO';
+      rowF.counterAxisSizingMode = 'AUTO';
+      rowF.itemSpacing = GAP;
+      rowF.fills = [];
+      for (var ci2 = 0; ci2 < chunk.length; ci2++) {
+        var fp2 = chunk[ci2];
+        rowF.appendChild(makePayCard(groups[fp2], payouts[groups[fp2][0]], cardW, ICON_SIZE_IND));
+      }
+      container.appendChild(rowF);
+    }
+  }
+
+  // 合組符號行（每行最多 3 組）
+  if (groupFPs.length > 0) {
+    var grpChunks = chunkArray(groupFPs, 3);
+    for (var gc = 0; gc < grpChunks.length; gc++) {
+      var gChunk = grpChunks[gc];
+      var gn = gChunk.length;
+      var gCardW = Math.floor((contentWidth - GAP * (gn - 1)) / gn);
+      var gRowF = figma.createFrame();
+      gRowF.layoutMode = 'HORIZONTAL';
+      gRowF.primaryAxisSizingMode = 'AUTO';
+      gRowF.counterAxisSizingMode = 'AUTO';
+      gRowF.itemSpacing = GAP;
+      gRowF.fills = [];
+      for (var gci = 0; gci < gChunk.length; gci++) {
+        var gfp = gChunk[gci];
+        gRowF.appendChild(makePayCard(groups[gfp], payouts[groups[gfp][0]], gCardW, ICON_SIZE_GRP));
+      }
+      container.appendChild(gRowF);
+    }
+  }
+
+  return container;
 }
 
 // ─── 賠率表（TYPE C）────────────────────────────────────────
@@ -1077,23 +1260,114 @@ function buildPaytableFrame(rows, ruleIdx, font, contentWidth) {
   return tf;
 }
 
+// ─── P1：SYMBOLS PER PLAY（圖示版）──────────────────────────────
+function buildBetSymbolsFrameV2(betRows, allRows, ruleIdx, lang, font, contentWidth) {
+  var COL_CONTENT = 4;
+  var COL_IMAGE   = 3;
+  var ICON_SIZE   = 56;
+
+  // 第一列（最高投注）的內容Sch = 完整符號清單
+  var topRow = null;
+  for (var ti = 0; ti < betRows.length; ti++) {
+    if ((betRows[ti][COL_CONTENT] || "").trim() !== "") { topRow = betRows[ti]; break; }
+  }
+  if (!topRow) topRow = betRows[0];
+  var allSyms = (topRow[COL_CONTENT] || "").trim().split(/\s+/).filter(Boolean);
+
+  // 外框
+  var tf = makeTblContainer(contentWidth);
+
+  var BET_W  = 130;
+  var hLabel = lang === "sch" ? "投注" : "BET";
+  var sLabel = lang === "sch" ? "标志" : "SYMBOLS";
+
+  // 標題列
+  var header = makeTblRow();
+  header.resize(contentWidth, 1);
+  header.primaryAxisSizingMode = 'FIXED';
+  header.counterAxisSizingMode = 'AUTO';
+  header.appendChild(makeTblCell(BET_W, hLabel, font, 20, false, 'CENTER'));
+  header.appendChild(makeVSep());
+  header.appendChild(makeTblCellGrow(sLabel, font, 20, false));
+  tf.appendChild(header);
+
+  // 資料列
+  for (var i = 0; i < betRows.length; i++) {
+    var row     = betRows[i];
+    var betAmt  = ((row[COL_IMAGE] || "").match(/<(\d+)>/) || [])[1] || "?";
+    var removed = (row[ruleIdx] || "").trim().split(/\s+/).filter(Boolean);
+    var active  = allSyms.filter(function(s) { return removed.indexOf(s) === -1; });
+
+    tf.appendChild(makeHSep());
+    var dataRow = makeTblRow();
+    dataRow.resize(contentWidth, 1);
+    dataRow.primaryAxisSizingMode = 'FIXED';
+    dataRow.counterAxisSizingMode = 'AUTO';
+
+    // BET 格（文字）
+    dataRow.appendChild(makeTblCell(BET_W, betAmt, font, 22, false, 'CENTER'));
+    dataRow.appendChild(makeVSep());
+
+    // SYMBOLS 格（icon frames + ✕ frames，HORIZONTAL WRAP）
+    var symCell = figma.createFrame();
+    symCell.name = 'TBL_CELL';
+    symCell.layoutMode = 'VERTICAL';
+    symCell.primaryAxisSizingMode = 'AUTO';
+    symCell.counterAxisSizingMode = 'AUTO';
+    symCell.layoutGrow = 1;
+    symCell.layoutAlign = 'STRETCH';
+    symCell.primaryAxisAlignItems = 'CENTER';
+    symCell.counterAxisAlignItems = 'MIN';
+    symCell.paddingLeft = symCell.paddingRight = 12;
+    symCell.paddingTop = symCell.paddingBottom = 10;
+    symCell.fills = TBL_CELL_FILL;
+    symCell.clipsContent = false;
+
+    var iconRow = figma.createFrame();
+    iconRow.layoutMode = 'HORIZONTAL';
+    iconRow.layoutWrap = 'WRAP';
+    iconRow.primaryAxisSizingMode = 'AUTO';
+    iconRow.counterAxisSizingMode = 'AUTO';
+    iconRow.primaryAxisAlignItems = 'MIN';
+    iconRow.counterAxisAlignItems = 'CENTER';
+    iconRow.itemSpacing = 8;
+    iconRow.counterAxisSpacing = 8;
+    iconRow.fills = [];
+    iconRow.layoutAlign = 'STRETCH';
+
+    for (var j = 0; j < active.length; j++) {
+      iconRow.appendChild(makeIconOrPlaceholder(active[j], ICON_SIZE, font));
+    }
+    for (var k = 0; k < removed.length; k++) {
+      iconRow.appendChild(makeXMark(ICON_SIZE, font));
+    }
+
+    symCell.appendChild(iconRow);
+    dataRow.appendChild(symCell);
+    tf.appendChild(dataRow);
+  }
+
+  return tf;
+}
+
 // ─── 投注符號表（TYPE B）────────────────────────────────────
 
 function buildBetSymbolsFrame(betRows, allRows, ruleIdx, lang, font, contentWidth) {
-  const COL_CONTENT = 4;
-  const COL_IMAGE   = 3;
+  var COL_CONTENT = 4;
+  var COL_IMAGE   = 3;
 
   // 第一行（最高投注）包含完整符號清單
-  const topRow = betRows.find(function(r) { return (r[COL_CONTENT] || "").trim() !== ""; }) || betRows[0];
-  const allSyms = (topRow[COL_CONTENT] || "").trim().split(/\s+/).filter(Boolean);
+  var topRow = betRows.find(function(r) { return (r[COL_CONTENT] || "").trim() !== ""; }) || betRows[0];
+  var allSyms = (topRow[COL_CONTENT] || "").trim().split(/\s+/).filter(Boolean);
 
-  const tf = makeTblContainer(contentWidth);
-  const BET_W = 130;
-  const hLabel = lang === "sch" ? "投注" : "BET";
-  const sLabel = lang === "sch" ? "标志" : "SYMBOLS";
+  var tf = makeTblContainer(contentWidth);
+
+  var BET_W = 130;
+  var hLabel = lang === "sch" ? "投注" : "BET";
+  var sLabel = lang === "sch" ? "标志" : "SYMBOLS";
 
   // 標題行
-  const header = makeTblRow();
+  var header = makeTblRow();
   header.resize(contentWidth, 1);
   header.primaryAxisSizingMode = 'FIXED';
   header.counterAxisSizingMode = 'AUTO';
@@ -1104,15 +1378,15 @@ function buildBetSymbolsFrame(betRows, allRows, ruleIdx, lang, font, contentWidt
 
   // 資料行
   for (var i = 0; i < betRows.length; i++) {
-    const row = betRows[i];
-    const betAmt = ((row[COL_IMAGE] || "").match(/<(\d+)>/) || [])[1] || "?";
-    const removed = (row[ruleIdx] || "").trim().split(/\s+/).filter(Boolean);
-    const active  = allSyms.filter(function(s) { return removed.indexOf(s) === -1; });
-    const activeTxt  = active.join("   ");
-    const removedTxt = removed.length > 0 ? ("  ✕  " + removed.join("  ✕  ")) : "";
+    var row = betRows[i];
+    var betAmt = ((row[COL_IMAGE] || "").match(/<(\d+)>/) || [])[1] || "?";
+    var removed = (row[ruleIdx] || "").trim().split(/\s+/).filter(Boolean);
+    var active  = allSyms.filter(function(s) { return removed.indexOf(s) === -1; });
+    var activeTxt  = active.join("   ");
+    var removedTxt = removed.length > 0 ? ("  ✕  " + removed.join("  ✕  ")) : "";
 
     tf.appendChild(makeHSep());
-    const dataRow = makeTblRow();
+    var dataRow = makeTblRow();
     dataRow.resize(contentWidth, 1);
     dataRow.primaryAxisSizingMode = 'FIXED';
     dataRow.counterAxisSizingMode = 'AUTO';
@@ -1124,17 +1398,108 @@ function buildBetSymbolsFrame(betRows, allRows, ruleIdx, lang, font, contentWidt
   return tf;
 }
 
+// ─── P3：SPECIAL SYMBOLS（WILD / SCATTER info cards）────────────
+// 每列資料 = 一張資訊卡（左圖右文）
+function buildSpecialSymbolsFrame(specialRows, ruleIdx, lang, font, contentWidth) {
+  var COL_IMAGE     = 3;   // 示意圖Sch → [SymName]
+  var COL_TITLE_EN  = 2;   // 標題EN
+  var COL_TITLE_SCH = 1;   // 標題Sch
+  var ICON_SIZE     = 120;
+
+  var container = figma.createFrame();
+  container.layoutMode = 'VERTICAL';
+  container.primaryAxisSizingMode = 'AUTO';
+  container.counterAxisSizingMode = 'FIXED';
+  container.resize(contentWidth, 1);
+  container.itemSpacing = 32;
+  container.fills = [];
+
+  for (var ri = 0; ri < specialRows.length; ri++) {
+    var row      = specialRows[ri];
+    var symRef   = (row[COL_IMAGE] || "").trim();           // e.g. "[WW]"
+    var symName  = symRef.replace(/[\[\]]/g, '').trim();   // e.g. "WW"
+    var cardTitle = (lang === 'sch'
+      ? (row[COL_TITLE_SCH] || row[COL_TITLE_EN] || symName)
+      : (row[COL_TITLE_EN]  || symName)
+    ).trim();
+    var ruleText = (row[ruleIdx] || "").trim();
+
+    // 卡片外框（HORIZONTAL）
+    var card = figma.createFrame();
+    card.layoutMode = 'HORIZONTAL';
+    card.primaryAxisSizingMode = 'AUTO';
+    card.counterAxisSizingMode = 'FIXED';
+    card.resize(contentWidth, 1);
+    card.primaryAxisAlignItems = 'MIN';
+    card.counterAxisAlignItems = 'CENTER';
+    card.itemSpacing = 24;
+    card.paddingLeft = card.paddingRight = 32;
+    card.paddingTop  = card.paddingBottom = 32;
+    card.fills = [{ type: 'SOLID', color: { r: 0.15, g: 0.13, b: 0.25 } }];
+    card.cornerRadius = 12;
+
+    // 左側：icon
+    card.appendChild(makeIconOrPlaceholder(symName, ICON_SIZE, font));
+
+    // 右側：標題 + 規則文字
+    var textCol = figma.createFrame();
+    textCol.layoutMode = 'VERTICAL';
+    textCol.primaryAxisSizingMode = 'AUTO';
+    textCol.counterAxisSizingMode = 'AUTO';
+    textCol.layoutGrow = 1;
+    textCol.layoutAlign = 'STRETCH';
+    textCol.primaryAxisAlignItems = 'MIN';
+    textCol.counterAxisAlignItems = 'MIN';
+    textCol.itemSpacing = 12;
+    textCol.fills = [];
+
+    // 卡片標題（黃色）
+    var titleT = figma.createText();
+    titleT.fontName = font;
+    titleT.fontSize = 32;
+    titleT.characters = cardTitle || symName;
+    titleT.fills = [{ type: 'SOLID', color: { r: 0.94, g: 0.75, b: 0.15 } }];
+    titleT.textAutoResize = 'WIDTH_AND_HEIGHT';
+    textCol.appendChild(titleT);
+
+    // 規則文字（白色，支援 bullet）
+    if (ruleText) {
+      var processed = processBulletText(ruleText);
+      var ruleT = figma.createText();
+      ruleT.fontName = font;
+      ruleT.fontSize = 22;
+      ruleT.characters = processed.text;
+      ruleT.fills = [{ type: 'SOLID', color: { r: 1, g: 1, b: 1 } }];
+      ruleT.textAutoResize = 'HEIGHT';
+      ruleT.layoutAlign = 'STRETCH';
+      for (var bi = 0; bi < processed.bulletRanges.length; bi++) {
+        ruleT.setRangeListOptions(
+          processed.bulletRanges[bi].start,
+          processed.bulletRanges[bi].end,
+          { type: 'UNORDERED' }
+        );
+      }
+      textCol.appendChild(ruleT);
+    }
+
+    card.appendChild(textCol);
+    container.appendChild(card);
+  }
+
+  return container;
+}
+
 // ─── 資料範圍表（TYPE D/E）──────────────────────────────────
 
 function buildDataTableFrame(rangeRows, ruleIdx, font, contentWidth) {
-  const tf = makeTblContainer(contentWidth);
-  const BET_W = 180;
+  var tf = makeTblContainer(contentWidth);
+  var BET_W = 180;
   for (var i = 0; i < rangeRows.length; i++) {
-    const text = (rangeRows[i][ruleIdx] || "").trim();
-    const parts = text.split(/\s*[|｜]\s*/);
-    const isHeader = i === 0;
+    var text = (rangeRows[i][ruleIdx] || "").trim();
+    var parts = text.split(/\s*[|｜]\s*/);
+    var isHeader = i === 0;
     if (i > 0) tf.appendChild(makeHSep());
-    const dataRow = makeTblRow();
+    var dataRow = makeTblRow();
     dataRow.resize(contentWidth, 1);
     dataRow.primaryAxisSizingMode = 'FIXED';
     dataRow.counterAxisSizingMode = 'AUTO';
@@ -1186,86 +1551,69 @@ function tokenizeText(text) {
 }
 
 // =============================================
-// 後處理工具：指定字元換字型
+// 後處理工具：批次文字樣式
 // =============================================
 
-// 取得文字節點內所有使用到的字型（逐字元讀取，確保不遺漏）
-function getUniqueFontNames(textNode) {
-  var seen = new Set();
-  var result = [];
-  var text = textNode.characters;
-  for (var i = 0; i < text.length; i++) {
-    var font = textNode.getRangeFontName(i, i + 1);
-    if (typeof font !== 'symbol') {
-      var key = font.family + '||' + font.style;
-      if (!seen.has(key)) { seen.add(key); result.push(font); }
-    }
-  }
-  return result;
-}
-
-async function handleReplaceCharFont(msg) {
-  var characters = msg.characters || '';
-  var fontFamily = msg.fontFamily || '';
-  var fontStyle  = msg.fontStyle  || 'Regular';
-
-  if (!characters) {
-    figma.ui.postMessage({ type: 'style-error', text: '⚠️ 請輸入要替換的字元' });
-    return;
-  }
-  if (!fontFamily) {
-    figma.ui.postMessage({ type: 'style-error', text: '⚠️ 請輸入目標字型' });
-    return;
-  }
-
-  var selection = figma.currentPage.selection;
+async function handleChangeTextStyle(opts) {
+  const selection = figma.currentPage.selection;
   if (selection.length === 0) {
     figma.ui.postMessage({ type: 'style-error', text: '⚠️ 請先選取至少一個節點' });
     return;
   }
 
-  var targetFont = { family: fontFamily, style: fontStyle };
-  try {
-    await figma.loadFontAsync(targetFont);
-  } catch (e) {
-    figma.ui.postMessage({ type: 'style-error', text: '⚠️ 無法載入字型：' + fontFamily + ' ' + fontStyle });
+  const textNodes = [];
+  for (const node of selection) {
+    if (node.type === 'TEXT') textNodes.push(node);
+    if ('findAll' in node) textNodes.push(...node.findAll(function(n) { return n.type === 'TEXT'; }));
+  }
+  if (textNodes.length === 0) {
+    figma.ui.postMessage({ type: 'style-error', text: '⚠️ 選取範圍內找不到文字節點' });
     return;
   }
 
-  var targetChars = characters.split('');
-  var textNodes = [];
-  for (var ni = 0; ni < selection.length; ni++) {
-    var n = selection[ni];
-    if (n.type === 'TEXT') textNodes.push(n);
-    if ('findAll' in n) textNodes.push.apply(textNodes, n.findAll(function(c) { return c.type === 'TEXT'; }));
-  }
+  const fontCache = new Set();
+  var succeeded = 0, failed = 0;
 
-  var totalFixed = 0;
-  for (var ti = 0; ti < textNodes.length; ti++) {
-    var tn = textNodes[ti];
-    var text = tn.characters;
-    if (!targetChars.some(function(ch) { return text.includes(ch); })) continue;
-
-    // 載入節點內所有現有字型（參考工具的核心做法）
-    var existingFonts = getUniqueFontNames(tn);
-    for (var fi = 0; fi < existingFonts.length; fi++) {
-      try { await figma.loadFontAsync(existingFonts[fi]); } catch (_) {}
-    }
-
-    for (var ci = 0; ci < text.length; ci++) {
-      if (targetChars.indexOf(text[ci]) >= 0) {
-        try {
-          tn.setRangeFontName(ci, ci + 1, targetFont);
-          totalFixed++;
-        } catch (_) {}
+  for (var i = 0; i < textNodes.length; i++) {
+    var node = textNodes[i];
+    try {
+      if (opts.fontFamily || opts.fontStyle) {
+        var currentFont = node.fontName === figma.mixed
+          ? node.getStyledTextSegments(['fontName'])[0].fontName
+          : node.fontName;
+        var isBullet = node.characters && node.characters.charAt(0) === '·';
+        var newFont = {
+          family: (isBullet || !opts.fontFamily) ? currentFont.family : opts.fontFamily,
+          style:  opts.fontStyle || currentFont.style,
+        };
+        var cacheKey = newFont.family + '-' + newFont.style;
+        if (!fontCache.has(cacheKey)) {
+          await figma.loadFontAsync(newFont);
+          fontCache.add(cacheKey);
+        }
+        node.fontName = newFont;
       }
+
+      if (opts.fontSize !== null) node.fontSize = opts.fontSize;
+
+      if (opts.lineHeight !== null) {
+        node.lineHeight = (opts.lineHeight === 'AUTO')
+          ? { unit: 'AUTO' }
+          : { unit: opts.lineHeightUnit, value: opts.lineHeight };
+      }
+
+      if (opts.letterSpacing !== null) {
+        node.letterSpacing = { unit: 'PERCENT', value: opts.letterSpacing };
+      }
+
+      succeeded++;
+    } catch (e) {
+      failed++;
     }
   }
 
-  figma.ui.postMessage({
-    type: 'style-done',
-    text: totalFixed > 0
-      ? ('✅ 完成！共更換 ' + totalFixed + ' 個字元的字型')
-      : '⚠️ 未找到目標字元，或字型設定失敗'
-  });
+  var resultText = failed > 0
+    ? ('⚠️ 已更新 ' + succeeded + ' 個，' + failed + ' 個失敗（字型或樣式可能不存在）')
+    : ('✅ 已更新 ' + succeeded + ' 個文字節點');
+  figma.ui.postMessage({ type: 'style-done', text: resultText });
 }
