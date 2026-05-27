@@ -971,21 +971,40 @@ function buildMultiColTableFromCell(rows, font, contentWidth) {
     dataRow.primaryAxisSizingMode = 'FIXED';
     dataRow.counterAxisSizingMode = 'AUTO';
 
-    // 找出此列最後一個非空格的欄位索引
-    var lastNonEmptyIdx = -1;
-    for (var k = 0; k < row.length; k++) {
-      if (row[k]) lastNonEmptyIdx = k;
+    // ── 處理列長度不足 maxCols 的三種情況 ──
+    // A. 首格為空 ["", "XXX"]       → 傳統跨欄：左空格 + 右 grow
+    // B. 首格非空 + 單一元素 ["TITLE"] → 插入空格後跨欄到右側（跨越整個右半部）
+    // C. 首格非空 + 多元素 ["A","B"]  → 左補空格，右對齊（欄位標題不含 BET 欄）
+    var processRow = row.slice();
+    var spanFromIdx = -1;
+
+    if (processRow.length < maxCols) {
+      if (!processRow[0]) {
+        // Case A：首格為空 → 找最後非空欄，從那裡 grow
+        var lastNEIdx = -1;
+        for (var k = 0; k < processRow.length; k++) {
+          if (processRow[k]) lastNEIdx = k;
+        }
+        if (lastNEIdx > 0) spanFromIdx = lastNEIdx;
+      } else if (processRow.length === 1) {
+        // Case B：單一元素非空 → 插入空格，從位置 1 grow（跨整個右側）
+        processRow.unshift('');
+        spanFromIdx = 1;
+      } else {
+        // Case C：多元素，首格非空 → 左補空格，內容推到右側各欄
+        while (processRow.length < maxCols) {
+          processRow.unshift('');
+        }
+      }
     }
-    // 跨欄條件：列的長度 < maxCols，且最後非空欄不在第一格（表示需要延展）
-    var spanFromIdx = (row.length < maxCols && lastNonEmptyIdx > 0) ? lastNonEmptyIdx : -1;
 
     for (var j = 0; j < maxCols; j++) {
-      var cellText = stripBraces(row[j] || "");
+      var cellText = stripBraces(processRow[j] || "");
       var isLast = (j === maxCols - 1);
       var w = (j === 0) ? BET_W : (isLast ? 0 : colW);
 
       if (spanFromIdx >= 0 && j === spanFromIdx) {
-        // 跨欄 grow cell：延展到最右側（多欄表格一律白色文字）
+        // 跨欄 grow cell：延展到最右側
         dataRow.appendChild(makeTblCellGrow(cellText, font, 16, false));
         break;
       } else if (w === 0) {
