@@ -190,7 +190,10 @@ async function generateManual({ rows, language, frameGap, rowGap }) {
 
           try {
             const tblIdx = lang === "sch" ? colIndex.tableSch : colIndex.tableEN;
-            const cellText = (tblIdx >= 0) ? (firstRow[tblIdx] || "").trim() : "";
+            // ⚠️ 不對 cellText 做 .trim()：前置空格（如「  DENOMINATION」）是對齊指示，
+            // 被 trim 掉後會喪失「空的第一欄」訊息，導致跨欄定位失敗。
+            // 空行／空白行由 buildTableFromCell 內部的 rows.filter 自行過濾。
+            const cellText = (tblIdx >= 0) ? (firstRow[tblIdx] || "") : "";
             var tableF = null;
             // 新型表格（paytable_v2 / bet_symbols）優先用 buildTableFrame，
             // 避免被 buildTableFromCell 搶先處理導致格式錯誤
