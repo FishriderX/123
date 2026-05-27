@@ -1,7 +1,11 @@
 // =============================================
-// 遊戲說明書產生器 v3 - Figma Plugin
+// 遊戲說明書產生器 - Figma Plugin
 // v4.0 — 自動表格頁面：P1 圖示化 / P2 賠率卡片自動合組 / P3 特殊符號資訊卡
-// v4.1 bugfix — buildTableFromCell 欄位分隔還原支援 Tab 或 2+空格（修復 P13 合併格子問題）
+// v4.1 — 表格架構還原：透明格子 + 明確 VSep/HSep + 跨欄邏輯（修復儲存格顏色與格線）
+// v4.2 — 多欄表格對齊修復 + cellText 不 trim（修復 P13/P15 欄位錯位與 DENOMINATION 位置）
+//   · buildMultiColTableFromCell：三段式對齊邏輯（A首格空→跨欄 / B多元首格非空→左補空格 / C單元首格非空→留col0）
+//   · cellText 移除 .trim()：保留各行前置空格，避免「  DENOMINATION」被截掉變成 col 0
+//   · 換圖（handleIconsOnly）：改用 figma.root.findOne 跨頁搜尋 COMPONENT
 // =============================================
 
 figma.showUI(__html__, { width: 520, height: 700, title: "遊戲說明書產生器 v4" });
