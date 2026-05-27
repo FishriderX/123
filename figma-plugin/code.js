@@ -410,12 +410,19 @@ async function handleIconsOnly() {
       for (const part of parts) {
         const tagMatch = /^\[([^\]]+)\]$/.exec(part);
         if (tagMatch) {
-          const comp = figma.currentPage.findOne(n => n.type === 'COMPONENT' && n.name === tagMatch[1]);
+          // 先搜全檔案（跨頁），找不到再回到當前頁保底（相容舊行為）
+          const comp = figma.root.findOne(function(n) { return n.type === 'COMPONENT' && n.name === tagMatch[1]; })
+                    || figma.currentPage.findOne(function(n) { return n.type === 'COMPONENT' && n.name === tagMatch[1]; });
           if (comp) {
             const inst = comp.createInstance();
             inst.name = 'icon_' + tagMatch[1];
             items.push({ node: inst, width: inst.width });
             iconCount++;
+          } else {
+            // 找不到 component：保留原始標籤文字，讓使用者知道哪個 component 缺失
+            const t = await makeTextNode(textNode, '[' + tagMatch[1] + ']', false);
+            items.push({ node: t, width: t.width });
+            figma.ui.postMessage({ type: 'icon-error', text: '⚠️ 找不到 Component：[' + tagMatch[1] + ']（請確認 component 存在於同一個 Figma 檔案中，且名稱完全相符）' });
           }
           continue;
         }
@@ -971,10 +978,10 @@ function buildMultiColTableFromCell(rows, font, contentWidth) {
     dataRow.primaryAxisSizingMode = 'FIXED';
     dataRow.counterAxisSizingMode = 'AUTO';
 
-    // ── 處理列長度不足 maxCols 的三種情況 ──
-    // A. 首格為空 ["", "XXX"]       → 傳統跨欄：左空格 + 右 grow
-    // B. 首格非空 + 單一元素 ["TITLE"] → 插入空格後跨欄到右側（跨越整個右半部）
-    // C. 首格非空 + 多元素 ["A","B"]  → 左補空格，右對齊（欄位標題不含 BET 欄）
+    // ── 處理列長度不足 maxCols 的兩種情況 ──
+    // A. 首格為空 ["", "TITLE"]     → 跨欄：空 BET 格 + 右側 grow（如 \tDENOMINATION）
+    // B. 首格非空 + 多元素 ["A","B"] → 左補空格，右對齊（欄位標題不含 BET 欄，如 P13）
+    // ※ 首格非空 + 單一元素 ["VAL"] → 不調整，直接放 col 0（如 [MINI]、[MINOR]）
     var processRow = row.slice();
     var spanFromIdx = -1;
 
@@ -986,16 +993,13 @@ function buildMultiColTableFromCell(rows, font, contentWidth) {
           if (processRow[k]) lastNEIdx = k;
         }
         if (lastNEIdx > 0) spanFromIdx = lastNEIdx;
-      } else if (processRow.length === 1) {
-        // Case B：單一元素非空 → 插入空格，從位置 1 grow（跨整個右側）
-        processRow.unshift('');
-        spanFromIdx = 1;
-      } else {
-        // Case C：多元素，首格非空 → 左補空格，內容推到右側各欄
+      } else if (processRow.length > 1) {
+        // Case B：多元素且首格非空 → 左補空格，內容推到右側各欄
         while (processRow.length < maxCols) {
           processRow.unshift('');
         }
       }
+      // 單一元素且首格非空：不動，保留在 col 0（BET 欄）
     }
 
     for (var j = 0; j < maxCols; j++) {
