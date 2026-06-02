@@ -2,7 +2,7 @@
 <html lang="zh-TW">
 <head>
 <meta charset="UTF-8" />
-<title>遊戲說明書產生器 v3</title>
+<title>遊戲說明書產生器 v4</title>
 <style>
   * { box-sizing: border-box; margin: 0; padding: 0; }
   body {
@@ -125,7 +125,7 @@
 
 <div class="header">
   <h1>🎮 遊戲說明書產生器</h1>
-  <div class="version">v3.10 — 穩定性修正</div>
+  <div class="version">v4.2</div>
 </div>
 
 <!-- ① API Key 設定（可折疊） -->
@@ -393,7 +393,8 @@
 
   // ── Settings ───────────────────────────────────────────────
   function persistSettings() {
-    const language = document.querySelector('input[name="language"]:checked')?.value || 'both';
+    var _checkedRadio = document.querySelector('input[name="language"]:checked');
+    var language = _checkedRadio ? _checkedRadio.value : 'both';
     parent.postMessage({
       pluginMessage: {
         type: 'saveSettings',
@@ -429,7 +430,7 @@
 
   // ── Messages from code.js ──────────────────────────────────
   window.onmessage = (event) => {
-    const msg = event.data?.pluginMessage;
+    const msg = event.data && event.data.pluginMessage;
     if (!msg) return;
     switch (msg.type) {
       case 'settings': applySettings(msg.data); break;

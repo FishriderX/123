@@ -41,6 +41,12 @@ figma.ui.onmessage = async (msg) => {
     case "icons-only":
       await handleIconsOnly();
       break;
+    case "replace-char-font":
+      await handleReplaceCharFont(msg);
+      break;
+    case "fix-bullet-font":
+      await handleFixBulletFont();
+      break;
     case "change-text-style":
       await handleChangeTextStyle(msg);
       break;
@@ -1578,6 +1584,118 @@ function tokenizeText(text) {
     }
   }
   return tokens.filter(function(t) { return t.length > 0; });
+}
+
+// =============================================
+// 後處理工具：字元級字型替換
+// =============================================
+
+async function handleReplaceCharFont(opts) {
+  var selection = figma.currentPage.selection;
+  if (selection.length === 0) {
+    figma.ui.postMessage({ type: 'style-error', text: '⚠️ 請先選取至少一個節點' });
+    return;
+  }
+  var targetChars = opts.characters || '';
+  if (!targetChars) {
+    figma.ui.postMessage({ type: 'style-error', text: '⚠️ 請輸入要替換的字元' });
+    return;
+  }
+  var targetFont = { family: opts.fontFamily, style: opts.fontStyle || 'Regular' };
+  try {
+    await figma.loadFontAsync(targetFont);
+  } catch (e) {
+    figma.ui.postMessage({ type: 'style-error', text: '⚠️ 字型載入失敗：' + targetFont.family + ' ' + targetFont.style });
+    return;
+  }
+
+  var textNodes = [];
+  for (var i = 0; i < selection.length; i++) {
+    var node = selection[i];
+    if (node.type === 'TEXT') textNodes.push(node);
+    if ('findAll' in node) { var found = node.findAll(function(n) { return n.type === 'TEXT'; }); textNodes.push.apply(textNodes, found); }
+  }
+  if (textNodes.length === 0) {
+    figma.ui.postMessage({ type: 'style-error', text: '⚠️ 選取範圍內找不到文字節點' });
+    return;
+  }
+
+  var targetSet = {};
+  for (var ci = 0; ci < targetChars.length; ci++) targetSet[targetChars[ci]] = true;
+
+  var succeeded = 0, failed = 0;
+  for (var ni = 0; ni < textNodes.length; ni++) {
+    try {
+      var segs = textNodes[ni].getStyledTextSegments(['fontName']);
+      var fontCache = {};
+      for (var si = 0; si < segs.length; si++) {
+        var fk = segs[si].fontName.family + '-' + segs[si].fontName.style;
+        if (!fontCache[fk]) { try { await figma.loadFontAsync(segs[si].fontName); } catch (e) {} fontCache[fk] = true; }
+      }
+      var text = textNodes[ni].characters;
+      for (var ki = 0; ki < text.length; ki++) {
+        if (targetSet[text[ki]]) {
+          textNodes[ni].setRangeFontName(ki, ki + 1, targetFont);
+        }
+      }
+      succeeded++;
+    } catch (e) { failed++; }
+  }
+  var resultMsg = failed > 0
+    ? '⚠️ 已更新 ' + succeeded + ' 個，' + failed + ' 個失敗（字型或節點限制）'
+    : '✅ 已更新 ' + succeeded + ' 個文字節點';
+  figma.ui.postMessage({ type: 'style-done', text: resultMsg });
+}
+
+async function handleFixBulletFont() {
+  var selection = figma.currentPage.selection;
+  if (selection.length === 0) {
+    figma.ui.postMessage({ type: 'bullet-error', text: '⚠️ 請先選取至少一個節點' });
+    return;
+  }
+  var bulletFont = await loadFontSafe([
+    { family: 'Noto Sans TC', style: 'Regular' },
+    { family: 'Noto Sans SC', style: 'Regular' },
+    { family: 'Noto Sans',    style: 'Regular' },
+    { family: 'Inter',        style: 'Regular' }
+  ]);
+
+  var textNodes = [];
+  for (var i = 0; i < selection.length; i++) {
+    var node = selection[i];
+    if (node.type === 'TEXT') textNodes.push(node);
+    if ('findAll' in node) { var found = node.findAll(function(n) { return n.type === 'TEXT'; }); textNodes.push.apply(textNodes, found); }
+  }
+  if (textNodes.length === 0) {
+    figma.ui.postMessage({ type: 'bullet-error', text: '⚠️ 選取範圍內找不到文字節點' });
+    return;
+  }
+
+  var BULLET_SET = { '·': true, '•': true };
+  var succeeded = 0, failed = 0;
+  for (var ni = 0; ni < textNodes.length; ni++) {
+    try {
+      var segs = textNodes[ni].getStyledTextSegments(['fontName']);
+      var fontCache = {};
+      for (var si = 0; si < segs.length; si++) {
+        var fk = segs[si].fontName.family + '-' + segs[si].fontName.style;
+        if (!fontCache[fk]) { try { await figma.loadFontAsync(segs[si].fontName); } catch (e) {} fontCache[fk] = true; }
+      }
+      var text = textNodes[ni].characters;
+      var changed = false;
+      for (var ki = 0; ki < text.length; ki++) {
+        if (BULLET_SET[text[ki]]) {
+          textNodes[ni].setRangeFontName(ki, ki + 1, bulletFont);
+          changed = true;
+        }
+      }
+      if (changed) succeeded++;
+    } catch (e) { failed++; }
+  }
+  var resultMsg = failed > 0
+    ? '⚠️ 已處理 ' + succeeded + ' 個節點，' + failed + ' 個失敗'
+    : '✅ 已修正 ' + succeeded + ' 個文字節點的圓點字型（→ ' + bulletFont.family + '）';
+  figma.ui.postMessage({ type: 'bullet-done', text: resultMsg });
 }
 
 // =============================================
