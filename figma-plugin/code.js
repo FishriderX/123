@@ -379,6 +379,8 @@ async function handleIconsOnly() {
     const container   = textNode.parent;
     const originalIdx = container.children.indexOf(textNode);
     const nodeWidth   = textNode.width;
+    const textX       = textNode.x;
+    const textY       = textNode.y;
 
     const hAlignMap = { LEFT: 'MIN', CENTER: 'CENTER', RIGHT: 'MAX' };
     const hAlign = hAlignMap[textNode.textAlignHorizontal] || 'MIN';
@@ -527,6 +529,14 @@ async function handleIconsOnly() {
     }
 
     container.insertChild(originalIdx, wrapper);
+    // 若容器非 Auto Layout（pageFrame 已 strip），wrapper 沒有自動位置，
+    // 需手動補回原 textNode 的座標與寬度，避免跑到 (0,0)
+    if (container.layoutMode === 'NONE') {
+      wrapper.counterAxisSizingMode = 'FIXED';
+      wrapper.resize(nodeWidth, wrapper.height);
+      wrapper.x = textX;
+      wrapper.y = textY;
+    }
     textNode.remove();
   }
   figma.ui.postMessage({ type: 'icon-done', text: `🎯 完成！共插入 ${iconCount} 個圖示` });
