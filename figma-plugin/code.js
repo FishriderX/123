@@ -141,17 +141,26 @@ async function generateManual({ rows, language, frameGap, rowGap }) {
         const titleText = (firstRow[titleIdx] || "").trim();
         const ruleText  = findPrimaryRuleText(pageRows, ruleIdx);
 
+        // pageFrame：純色背景，無 Auto Layout，讓使用者可自由覆蓋元素
         const pageFrame = figma.createFrame();
         pageFrame.name = `${pageLabel}_${langLabel}`;
         pageFrame.resize(FRAME_W, FRAME_H);
-        pageFrame.layoutMode = "VERTICAL";
-        pageFrame.primaryAxisSizingMode = "FIXED";
-        pageFrame.counterAxisSizingMode = "FIXED";
-        pageFrame.itemSpacing = 32;
-        pageFrame.paddingLeft = pageFrame.paddingRight = PADDING;
-        pageFrame.paddingTop = pageFrame.paddingBottom = PADDING;
         pageFrame.fills = [{ type: "SOLID", color: { r: 0.05, g: 0.05, b: 0.12 } }];
         pageFrame.cornerRadius = 8;
+        pageFrame.clipsContent = true;
+
+        // contentFrame：維持原本 Auto Layout 縮排與佈局，供 handleIconsOnly 正常定位
+        const contentFrame = figma.createFrame();
+        contentFrame.name = 'content';
+        contentFrame.fills = [];
+        contentFrame.clipsContent = false;
+        contentFrame.layoutMode = "VERTICAL";
+        contentFrame.primaryAxisSizingMode = "FIXED";
+        contentFrame.counterAxisSizingMode = "FIXED";
+        contentFrame.resize(FRAME_W - PADDING * 2, FRAME_H - PADDING * 2);
+        contentFrame.x = PADDING;
+        contentFrame.y = PADDING;
+        contentFrame.itemSpacing = 32;
 
         const titleNode = figma.createText();
         titleNode.name = "標題";
@@ -196,12 +205,12 @@ async function generateManual({ rows, language, frameGap, rowGap }) {
           if (cardsFrame) {
             cardsFrame.layoutAlign = 'STRETCH';
             cardsFrame.layoutGrow = 1;
-            pageFrame.appendChild(cardsFrame);
+            contentFrame.appendChild(cardsFrame);
           }
         } else {
           // 正常流程：大標題 + 規則文字 + 可選表格
-          pageFrame.appendChild(titleNode);
-          pageFrame.appendChild(ruleNode);
+          contentFrame.appendChild(titleNode);
+          contentFrame.appendChild(ruleNode);
 
           try {
             const tblIdx = lang === "sch" ? colIndex.tableSch : colIndex.tableEN;
@@ -227,13 +236,12 @@ async function generateManual({ rows, language, frameGap, rowGap }) {
               ruleNode.layoutGrow = 0;
               ruleNode.textAutoResize = "HEIGHT";
               tableF.layoutAlign = "STRETCH";
-              pageFrame.appendChild(tableF);
+              contentFrame.appendChild(tableF);
             }
           } catch (_) {}
         }
 
-        pageFrame.layoutMode = "NONE";
-        pageFrame.resize(FRAME_W, FRAME_H);
+        pageFrame.appendChild(contentFrame);
         outerFrame.appendChild(pageFrame);
         totalGenerated++;
       }
