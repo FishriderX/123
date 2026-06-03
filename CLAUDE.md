@@ -17,6 +17,7 @@
 | v4.0 | 2026-05-26 | 自動表格頁面：P1 圖示化 / P2 賠率卡 / P3 資訊卡；isNewType 修復 |
 | v4.1 | 2026-05-27 | 表格架構還原：透明格子 + 明確 VSep/HSep + 45% 透明黑色 fill |
 | v4.2 | 2026-05-27 | 多欄表格欄位對齊修復；cellText 不 trim；換圖跨頁搜尋 |
+| v4.3 | 2026-06-03 | ⑧後處理工具：圖像一鍵建立 Component（handleCreateComponentsFromImages） |
 
 ## 開發規範
 

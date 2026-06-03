@@ -6,6 +6,8 @@
 //   · buildMultiColTableFromCell：三段式對齊邏輯（A首格空→跨欄 / B多元首格非空→左補空格 / C單元首格非空→留col0）
 //   · cellText 移除 .trim()：保留各行前置空格，避免「  DENOMINATION」被截掉變成 col 0
 //   · 換圖（handleIconsOnly）：改用 figma.root.findOne 跨頁搜尋 COMPONENT
+// v4.3 — 新增⑧後處理工具：圖像一鍵建立 Component（handleCreateComponentsFromImages）
+//   · 選取 FRAME，一鍵將含副檔名的直接子節點就地轉換為 COMPONENT，名稱去副檔名
 // =============================================
 
 figma.showUI(__html__, { width: 520, height: 700, title: "遊戲說明書產生器 v4" });
@@ -46,6 +48,9 @@ figma.ui.onmessage = async (msg) => {
       break;
     case "fix-bullet-font":
       await handleFixBulletFont();
+      break;
+    case "create-components":
+      await handleCreateComponentsFromImages();
       break;
     case "change-text-style":
       await handleChangeTextStyle(msg);
@@ -1696,6 +1701,61 @@ async function handleFixBulletFont() {
     ? '⚠️ 已處理 ' + succeeded + ' 個節點，' + failed + ' 個失敗'
     : '✅ 已修正 ' + succeeded + ' 個文字節點的圓點字型（→ ' + bulletFont.family + '）';
   figma.ui.postMessage({ type: 'bullet-done', text: resultMsg });
+}
+
+// =============================================
+// 後處理工具：圖像一鍵建立 Component
+// =============================================
+
+async function handleCreateComponentsFromImages() {
+  var sel = figma.currentPage.selection;
+  if (!sel || sel.length === 0) {
+    figma.ui.postMessage({ type: 'comp-error', text: '⚠️ 請先選取一個 Frame' });
+    return;
+  }
+  var frame = sel[0];
+  if (frame.type !== 'FRAME') {
+    figma.ui.postMessage({ type: 'comp-error', text: '⚠️ 請選取一個 Frame（目前選取的是 ' + frame.type + '）' });
+    return;
+  }
+
+  var EXT_RE = /\.(png|jpg|jpeg|gif|webp|svg)$/i;
+  var targets = [];
+  for (var i = 0; i < frame.children.length; i++) {
+    if (EXT_RE.test(frame.children[i].name)) targets.push(frame.children[i]);
+  }
+
+  if (targets.length === 0) {
+    figma.ui.postMessage({ type: 'comp-error', text: '⚠️ Frame 內找不到圖像節點（需含副檔名如 .png、.jpg）' });
+    return;
+  }
+
+  var created = 0, skipped = 0;
+  for (var k = targets.length - 1; k >= 0; k--) {
+    var node = targets[k];
+    try {
+      var parent = node.parent;
+      var idx = parent.children.indexOf(node);
+      var compName = node.name.replace(EXT_RE, '');
+      var comp = figma.createComponent();
+      comp.name = compName;
+      comp.resize(node.width, node.height);
+      comp.x = node.x;
+      comp.y = node.y;
+      parent.insertChild(idx, comp);
+      comp.appendChild(node);
+      node.x = 0;
+      node.y = 0;
+      created++;
+    } catch (e) {
+      skipped++;
+    }
+  }
+
+  var msg = skipped > 0
+    ? '✅ 已建立 ' + created + ' 個 Component（' + skipped + ' 個略過）'
+    : '✅ 已建立 ' + created + ' 個 Component，均以原始節點名稱命名';
+  figma.ui.postMessage({ type: 'comp-done', text: msg });
 }
 
 // =============================================

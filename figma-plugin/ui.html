@@ -125,7 +125,7 @@
 
 <div class="header">
   <h1>🎮 遊戲說明書產生器</h1>
-  <div class="version">v4.2</div>
+  <div class="version">v4.3</div>
 </div>
 
 <!-- ① API Key 設定（可折疊） -->
@@ -302,6 +302,26 @@
       修正圓點字型 → Noto Sans TC
     </button>
     <div class="status-box" id="bulletStatusBox"></div>
+  </div>
+</div>
+
+<!-- ⑧ 後處理工具：圖像一鍵建立 Component -->
+<div class="section" style="margin-top:8px;">
+  <div class="section-title collapsible" id="comp-toggle" onclick="toggleSection('comp-body','comp-toggle')">
+    <span>⑧ 後處理工具：圖像一鍵建立 Component</span>
+    <span class="chevron">▾</span>
+  </div>
+  <div class="collapsible-body hidden" id="comp-body">
+    <div class="step-box" style="margin-bottom:10px;">
+      選取含有圖像子層的 <strong>Frame</strong>（例如已匯入的 <code>coin.png</code>、<code>star.png</code> 等節點），<br>
+      一鍵將所有圖像層就地轉換為 <strong>Component</strong>，以節點名稱（去副檔名）命名。<br><br>
+      ・只處理 Frame 的<strong>直接子節點</strong><br>
+      ・節點名稱需含副檔名（<code>.png</code> / <code>.jpg</code> / <code>.svg</code> 等）才會被識別
+    </div>
+    <button class="btn-secondary" id="btnCreateComponents" style="width:100%; padding:10px;">
+      一鍵建立 Component（選取 Frame → 子圖層轉換）
+    </button>
+    <div class="status-box" id="compStatusBox"></div>
   </div>
 </div>
 
@@ -490,6 +510,16 @@
         document.getElementById('bulletStatusBox').textContent = msg.text;
         document.getElementById('btnFixBullet').disabled = false;
         break;
+      case 'comp-done':
+        document.getElementById('compStatusBox').className = 'status-box done';
+        document.getElementById('compStatusBox').textContent = msg.text;
+        document.getElementById('btnCreateComponents').disabled = false;
+        break;
+      case 'comp-error':
+        document.getElementById('compStatusBox').className = 'status-box error';
+        document.getElementById('compStatusBox').textContent = msg.text;
+        document.getElementById('btnCreateComponents').disabled = false;
+        break;
     }
   };
 
@@ -553,6 +583,14 @@
     document.getElementById('bulletStatusBox').className = 'status-box status-info';
     document.getElementById('bulletStatusBox').textContent = '⏳ 修正中...';
     parent.postMessage({ pluginMessage: { type: 'fix-bullet-font' } }, '*');
+  });
+
+  // ── 圖像一鍵建立 Component ────────────────────────────────
+  document.getElementById('btnCreateComponents').addEventListener('click', () => {
+    document.getElementById('btnCreateComponents').disabled = true;
+    document.getElementById('compStatusBox').className = 'status-box info';
+    document.getElementById('compStatusBox').textContent = '⏳ 建立中...';
+    parent.postMessage({ pluginMessage: { type: 'create-components' } }, '*');
   });
 
   // ── Radio buttons ──────────────────────────────────────────
