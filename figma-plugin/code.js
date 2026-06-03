@@ -420,17 +420,36 @@ async function handleIconsOnly() {
       });
     } catch (_) {}
 
-    const indentWidth = 24; // 懸掛縮排的透明間距寬度（px）
     const ITEM_GAP = 10;   // token 之間的間距
+    // 載入 bullet 專用字型（Noto Sans TC），確保 · 符號正確顯示
+    const bulletFont = await loadFontSafe([
+      { family: 'Noto Sans TC', style: 'Regular' },
+      { family: 'Noto Sans SC', style: 'Regular' },
+      { family: 'Noto Sans',    style: 'Regular' },
+      { family: 'Inter',        style: 'Regular' }
+    ]);
 
     for (let i = 0; i < lines.length; i++) {
       const isBullet = bulletLineSet.has(i);
 
       // ── Step 1：建立這行所有 token 節點並記錄寬度 ──────────────
       const items = [];
+      let bulletWidth = 0; // 記錄 bullet 符號的實際渲染寬度，供後續縮排 spacer 使用
 
       if (isBullet) {
-        const bt = await makeTextNode(textNode, '· ', false);
+        // 用 Noto Sans TC 建立 bullet，字號與原文字相同
+        const bt = figma.createText();
+        bt.fontName = bulletFont;
+        bt.fontSize = textNode.fontSize;
+        bt.lineHeight = textNode.lineHeight;
+        bt.letterSpacing = textNode.letterSpacing;
+        bt.fills = JSON.parse(JSON.stringify(textNode.fills));
+        bt.strokes = [{ type: 'SOLID', color: { r: 0, g: 0, b: 0 } }];
+        bt.strokeWeight = 2;
+        bt.strokeAlign = 'OUTSIDE';
+        bt.textAlignHorizontal = textNode.textAlignHorizontal;
+        bt.characters = '· ';
+        bulletWidth = bt.width; // 量實際寬度
         items.push({ node: bt, width: bt.width });
       }
 
@@ -514,15 +533,14 @@ async function handleIconsOnly() {
         rowFrame.counterAxisAlignItems = 'CENTER';
         rowFrame.itemSpacing = ITEM_GAP;
 
-        // 第 2 行以後（bullet 行）：透明縮排 spacer
+        // 第 2 行以後（bullet 行）：透明縮排 spacer，寬度對齊 bullet 符號實際寬度
         if (r > 0 && isBullet) {
           const indent = figma.createFrame();
           indent.name = 'indent';
           indent.fills = [];
-          indent.layoutAlign = 'STRETCH';
-          indent.resize(indentWidth, 1);
+          indent.resize(bulletWidth || 24, 1);
           indent.primaryAxisSizingMode = 'FIXED';
-          indent.counterAxisSizingMode = 'AUTO';
+          indent.counterAxisSizingMode = 'FIXED';
           rowFrame.appendChild(indent);
         }
 
