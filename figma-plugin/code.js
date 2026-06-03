@@ -1722,11 +1722,14 @@ async function handleCreateComponentsFromImages() {
   var EXT_RE = /\.(png|jpg|jpeg|gif|webp|svg)$/i;
   var targets = [];
   for (var i = 0; i < frame.children.length; i++) {
-    if (EXT_RE.test(frame.children[i].name)) targets.push(frame.children[i]);
+    var child = frame.children[i];
+    var hasImageFill = child.fills && Array.isArray(child.fills) &&
+      child.fills.some(function(f) { return f.type === 'IMAGE'; });
+    if (hasImageFill) targets.push(child);
   }
 
   if (targets.length === 0) {
-    figma.ui.postMessage({ type: 'comp-error', text: '⚠️ Frame 內找不到圖像節點（需含副檔名如 .png、.jpg）' });
+    figma.ui.postMessage({ type: 'comp-error', text: '⚠️ Frame 內找不到含圖像填充的節點' });
     return;
   }
 

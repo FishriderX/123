@@ -313,10 +313,9 @@
   </div>
   <div class="collapsible-body hidden" id="comp-body">
     <div class="step-box" style="margin-bottom:10px;">
-      選取含有圖像子層的 <strong>Frame</strong>（例如已匯入的 <code>coin.png</code>、<code>star.png</code> 等節點），<br>
-      一鍵將所有圖像層就地轉換為 <strong>Component</strong>，以節點名稱（去副檔名）命名。<br><br>
+      選取含有圖像子層的 <strong>Frame</strong>，一鍵將所有含圖像填充的直接子節點就地轉換為 <strong>Component</strong>，以節點名稱命名（自動去副檔名）。<br><br>
       ・只處理 Frame 的<strong>直接子節點</strong><br>
-      ・節點名稱需含副檔名（<code>.png</code> / <code>.jpg</code> / <code>.svg</code> 等）才會被識別
+      ・偵測方式：節點有 <strong>Image fill</strong>（不限制節點名稱或副檔名）
     </div>
     <button class="btn-secondary" id="btnCreateComponents" style="width:100%; padding:10px;">
       一鍵建立 Component（選取 Frame → 子圖層轉換）
