@@ -428,13 +428,21 @@ async function handleIconsOnly() {
       { family: 'Noto Sans',    style: 'Regular' },
       { family: 'Inter',        style: 'Regular' }
     ]);
+    // 量一次 bullet 符號寬度，作為所有行 row2+ 的通用縮排單位
+    const _btRef = figma.createText();
+    _btRef.fontName = bulletFont;
+    _btRef.fontSize = textNode.fontSize;
+    _btRef.lineHeight = textNode.lineHeight;
+    _btRef.letterSpacing = textNode.letterSpacing;
+    _btRef.characters = '· ';
+    const bulletWidth = _btRef.width;
+    _btRef.remove();
 
     for (let i = 0; i < lines.length; i++) {
       const isBullet = bulletLineSet.has(i);
 
       // ── Step 1：建立這行所有 token 節點並記錄寬度 ──────────────
       const items = [];
-      let bulletWidth = 0; // 記錄 bullet 符號的實際渲染寬度，供後續縮排 spacer 使用
 
       if (isBullet) {
         // 用 Noto Sans TC 建立 bullet，字號與原文字相同
@@ -449,7 +457,6 @@ async function handleIconsOnly() {
         bt.strokeAlign = 'OUTSIDE';
         bt.textAlignHorizontal = textNode.textAlignHorizontal;
         bt.characters = '· ';
-        bulletWidth = bt.width; // 量實際寬度
         items.push({ node: bt, width: bt.width });
       }
 
@@ -494,8 +501,8 @@ async function handleIconsOnly() {
       let curRow = [], curW = 0, rowIdx = 0;
 
       for (const item of items) {
-        const maxW = (isBullet && rowIdx > 0)
-          ? nodeWidth - indentWidth - ITEM_GAP
+        const maxW = rowIdx > 0
+          ? nodeWidth - bulletWidth - ITEM_GAP
           : nodeWidth;
         const gap = curRow.length > 0 ? ITEM_GAP : 0;
         if (curW + gap + item.width > maxW && curRow.length > 0) {
@@ -533,8 +540,8 @@ async function handleIconsOnly() {
         rowFrame.counterAxisAlignItems = 'CENTER';
         rowFrame.itemSpacing = ITEM_GAP;
 
-        // 第 2 行以後（bullet 行）：透明縮排 spacer，寬度對齊 bullet 符號實際寬度
-        if (r > 0 && isBullet) {
+        // 第 2 行以後（所有行）：透明縮排 spacer，寬度對齊 bullet 符號單位
+        if (r > 0) {
           const indent = figma.createFrame();
           indent.name = 'indent';
           indent.fills = [];
