@@ -232,6 +232,8 @@ async function generateManual({ rows, language, frameGap, rowGap }) {
           } catch (_) {}
         }
 
+        pageFrame.layoutMode = "NONE";
+        pageFrame.resize(FRAME_W, FRAME_H);
         outerFrame.appendChild(pageFrame);
         totalGenerated++;
       }
