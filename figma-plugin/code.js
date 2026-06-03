@@ -1725,20 +1725,35 @@ async function handleFixBulletFont() {
   var succeeded = 0, failed = 0;
   for (var ni = 0; ni < textNodes.length; ni++) {
     try {
+      // 先預載所有現有字型，才能呼叫 setRangeFontName
       var segs = textNodes[ni].getStyledTextSegments(['fontName']);
       var fontCache = {};
       for (var si = 0; si < segs.length; si++) {
         var fk = segs[si].fontName.family + '-' + segs[si].fontName.style;
         if (!fontCache[fk]) { try { await figma.loadFontAsync(segs[si].fontName); } catch (e) {} fontCache[fk] = true; }
       }
-      var text = textNodes[ni].characters;
       var changed = false;
+      // ① 修正文字中直接存在的 · / • 字元字型
+      var text = textNodes[ni].characters;
       for (var ki = 0; ki < text.length; ki++) {
         if (BULLET_SET[text[ki]]) {
           textNodes[ni].setRangeFontName(ki, ki + 1, bulletFont);
           changed = true;
         }
       }
+      // ② 修正 Figma unordered list 段落的 bullet marker 字型
+      // （processBulletText 會移除 · 字元並改用 setRangeListOptions，
+      //   bullet 字型由該段落起始字元的字型決定，需在此一併補正）
+      try {
+        var listSegs = textNodes[ni].getStyledTextSegments(['listOptions']);
+        for (var ls = 0; ls < listSegs.length; ls++) {
+          var lseg = listSegs[ls];
+          if (lseg.listOptions && lseg.listOptions.type === 'UNORDERED' && lseg.start < lseg.end) {
+            textNodes[ni].setRangeFontName(lseg.start, lseg.start + 1, bulletFont);
+            changed = true;
+          }
+        }
+      } catch (_) {}
       if (changed) succeeded++;
     } catch (e) { failed++; }
   }
