@@ -467,8 +467,7 @@ async function handleIconsOnly() {
         const tagMatch = /^\[([^\]]+)\]$/.exec(part);
         if (tagMatch) {
           // 先搜全檔案（跨頁），找不到再回到當前頁保底（相容舊行為）
-          const comp = figma.root.findOne(function(n) { return n.type === 'COMPONENT' && n.name === tagMatch[1]; })
-                    || figma.currentPage.findOne(function(n) { return n.type === 'COMPONENT' && n.name === tagMatch[1]; });
+          const comp = figma.currentPage.findOne(function(n) { return n.type === 'COMPONENT' && n.name === tagMatch[1]; });
           if (comp) {
             const inst = comp.createInstance();
             inst.name = 'icon_' + tagMatch[1];
