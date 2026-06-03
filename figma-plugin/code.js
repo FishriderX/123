@@ -1739,7 +1739,7 @@ async function handleCreateComponentsFromImages() {
     try {
       var parent = node.parent;
       var idx = parent.children.indexOf(node);
-      var compName = node.name.replace(EXT_RE, '');
+      var compName = node.name.replace(/\s+\d+$/, '').replace(EXT_RE, '');
       var comp = figma.createComponent();
       comp.name = compName;
       comp.resize(node.width, node.height);
