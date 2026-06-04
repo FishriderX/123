@@ -1,4 +1,4 @@
-# 遊戲說明書產生器 v4.2 — Figma Plugin
+# 遊戲說明書產生器 v4.4 — Figma Plugin
 
 ## 專案概述
 從 Google Sheets 讀取資料，自動在 Figma 生成 1920×1080 遊戲說明書 Frame。
@@ -18,6 +18,7 @@
 | v4.1 | 2026-05-27 | 表格架構還原：透明格子 + 明確 VSep/HSep + 45% 透明黑色 fill |
 | v4.2 | 2026-05-27 | 多欄表格欄位對齊修復；cellText 不 trim；換圖跨頁搜尋 |
 | v4.3 | 2026-06-03 | ⑧後處理工具：圖像一鍵建立 Component（handleCreateComponentsFromImages） |
+| v4.4 | 2026-06-04 | 副標題/副內文支援（標題SCH2~5 / 規則SCH2~5，繁簡體通用）；主標題漸層色；規則/副內文統一 26px；副標題橘色 36px；表格永遠最後；字元替換修正 mixed-font；移除⑦修正圓點字型工具 |
 
 ## 開發規範
 

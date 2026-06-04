@@ -1,4 +1,4 @@
-<!DOCTYPE html>
+﻿<!DOCTYPE html>
 <html lang="zh-TW">
 <head>
 <meta charset="UTF-8" />
@@ -125,7 +125,7 @@
 
 <div class="header">
   <h1>🎮 遊戲說明書產生器</h1>
-  <div class="version">v4.3</div>
+  <div class="version">v4.4</div>
 </div>
 
 <!-- ① API Key 設定（可折疊） -->
@@ -284,24 +284,6 @@
       套用到選取範圍
     </button>
     <div class="status-box" id="styleStatusBox"></div>
-  </div>
-</div>
-
-<!-- ⑦ 後處理工具：修正圓點字型 -->
-<div class="section" style="margin-top:8px;">
-  <div class="section-title collapsible" id="bullet-toggle" onclick="toggleSection('bullet-body','bullet-toggle')">
-    <span>⑦ 後處理工具：修正圓點字型</span>
-    <span class="chevron">▾</span>
-  </div>
-  <div class="collapsible-body hidden" id="bullet-body">
-    <div class="step-box" style="margin-bottom:10px;">
-      選取 Frame 或文字節點後執行。<br>
-      將範圍內所有 <code>·</code> <code>•</code> 等圓點符號的字型一律改為 <strong>Noto Sans TC</strong>，不影響其他文字。
-    </div>
-    <button class="btn-secondary" id="btnFixBullet" style="width:100%; padding:10px;">
-      修正圓點字型 → Noto Sans TC
-    </button>
-    <div class="status-box" id="bulletStatusBox"></div>
   </div>
 </div>
 
@@ -499,16 +481,7 @@
         showStyleStatus('error', msg.text);
         document.getElementById('btnApplyStyle').disabled = false;
         break;
-      case 'bullet-done':
-        document.getElementById('bulletStatusBox').className = 'status-box done';
-        document.getElementById('bulletStatusBox').textContent = msg.text;
-        document.getElementById('btnFixBullet').disabled = false;
-        break;
-      case 'bullet-error':
-        document.getElementById('bulletStatusBox').className = 'status-box error';
-        document.getElementById('bulletStatusBox').textContent = msg.text;
-        document.getElementById('btnFixBullet').disabled = false;
-        break;
+
       case 'comp-done':
         document.getElementById('compStatusBox').className = 'status-box done';
         document.getElementById('compStatusBox').textContent = msg.text;
@@ -575,13 +548,6 @@
     parent.postMessage({
       pluginMessage: { type: 'replace-char-font', characters, fontFamily, fontStyle }
     }, '*');
-  });
-
-  document.getElementById('btnFixBullet').addEventListener('click', () => {
-    document.getElementById('btnFixBullet').disabled = true;
-    document.getElementById('bulletStatusBox').className = 'status-box status-info';
-    document.getElementById('bulletStatusBox').textContent = '⏳ 修正中...';
-    parent.postMessage({ pluginMessage: { type: 'fix-bullet-font' } }, '*');
   });
 
   // ── 圖像一鍵建立 Component ────────────────────────────────

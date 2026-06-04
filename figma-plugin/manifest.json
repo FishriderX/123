@@ -1,5 +1,5 @@
-{
-  "name": "遊戲說明書產生器 v4",
+﻿{
+  "name": "遊戲說明書產生器 v4.4",
   "id": "game-manual-generator",
   "api": "1.0.0",
   "main": "code.js",

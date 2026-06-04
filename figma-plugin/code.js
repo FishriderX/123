@@ -1,4 +1,4 @@
-// =============================================
+﻿// =============================================
 // 遊戲說明書產生器 - Figma Plugin
 // v4.0 — 自動表格頁面：P1 圖示化 / P2 賠率卡片自動合組 / P3 特殊符號資訊卡
 // v4.1 — 表格架構還原：透明格子 + 明確 VSep/HSep + 跨欄邏輯（修復儲存格顏色與格線）
@@ -8,9 +8,15 @@
 //   · 換圖（handleIconsOnly）：改用 figma.root.findOne 跨頁搜尋 COMPONENT
 // v4.3 — 新增⑧後處理工具：圖像一鍵建立 Component（handleCreateComponentsFromImages）
 //   · 選取 FRAME，一鍵將含副檔名的直接子節點就地轉換為 COMPONENT，名稱去副檔名
+// v4.4 — 副標題/副內文支援（欄位 標題SCH2~5 / 規則SCH2~5，繁簡體通用）
+//   · 主標題改漸層色（橘→黃）；規則/副內文字號統一 26px；副標題橘色 36px
+//   · 佈局順序調整：主標題→主規則→副標題/副內文(2–5)→表格（永遠最後）
+//   · 字元替換功能修正：改用逐字元 getRangeFontName 預載字型（修復 mixed-font 節點）
+//   · 移除⑦修正圓點字型工具
+//   · 選取 FRAME，一鍵將含副檔名的直接子節點就地轉換為 COMPONENT，名稱去副檔名
 // =============================================
 
-figma.showUI(__html__, { width: 520, height: 700, title: "遊戲說明書產生器 v4" });
+figma.showUI(__html__, { width: 520, height: 700, title: "遊戲說明書產生器 v4.4" });
 
 // 載入 Figma 現有字型清單並送給 UI
 figma.listAvailableFontsAsync().then(function(fonts) {
@@ -45,9 +51,6 @@ figma.ui.onmessage = async (msg) => {
       break;
     case "replace-char-font":
       await handleReplaceCharFont(msg);
-      break;
-    case "fix-bullet-font":
-      await handleFixBulletFont();
       break;
     case "create-components":
       await handleCreateComponentsFromImages();
@@ -168,7 +171,14 @@ async function generateManual({ rows, language, frameGap, rowGap }) {
         titleNode.fontSize = 45;
         titleNode.textAlignHorizontal = "CENTER";
         titleNode.characters = titleText || `(${pageLabel} 標題)`;
-        titleNode.fills = [{ type: "SOLID", color: { r: 0.94, g: 0.75, b: 0.15 } }];
+        titleNode.fills = [{
+          type: "GRADIENT_LINEAR",
+          gradientTransform: [[1, 0, 0], [0, 1, 0]],
+          gradientStops: [
+            { position: 0, color: { r: 0.96, g: 0.60, b: 0.10, a: 1 } },
+            { position: 1, color: { r: 0.94, g: 0.85, b: 0.15, a: 1 } }
+          ]
+        }];
         titleNode.layoutAlign = "STRETCH";
         titleNode.layoutGrow = 0;
         titleNode.textAutoResize = "HEIGHT";
@@ -184,7 +194,7 @@ async function generateManual({ rows, language, frameGap, rowGap }) {
         const ruleNode = figma.createText();
         ruleNode.name = "規則";
         ruleNode.fontName = lang === "sch" ? fontZH : fontEN;
-        ruleNode.fontSize = lang === "sch" ? 28 : 26;
+        ruleNode.fontSize = 26;
         ruleNode.characters = ruleChars;
         ruleNode.fills = [{ type: "SOLID", color: { r: 1, g: 1, b: 1 } }];
         ruleNode.layoutAlign = "STRETCH";
@@ -208,17 +218,14 @@ async function generateManual({ rows, language, frameGap, rowGap }) {
             contentFrame.appendChild(cardsFrame);
           }
         } else {
-          // 正常流程：大標題 + 規則文字 + 可選表格
-          contentFrame.appendChild(titleNode);
-          contentFrame.appendChild(ruleNode);
-
+          // 正常流程：大標題 + 規則文字 + 副標題/副內文（2–5）+ 可選表格（永遠最後）
+          var tableF = null;
           try {
             const tblIdx = lang === "sch" ? colIndex.tableSch : colIndex.tableEN;
             // ⚠️ 不對 cellText 做 .trim()：前置空格（如「  DENOMINATION」）是對齊指示，
             // 被 trim 掉後會喪失「空的第一欄」訊息，導致跨欄定位失敗。
             // 空行／空白行由 buildTableFromCell 內部的 rows.filter 自行過濾。
             const cellText = (tblIdx >= 0) ? (firstRow[tblIdx] || "") : "";
-            var tableF = null;
             // 新型表格（paytable_v2 / bet_symbols）優先用 buildTableFrame，
             // 避免被 buildTableFromCell 搶先處理導致格式錯誤
             var isNewType = pageTableInfo && (
@@ -232,13 +239,72 @@ async function generateManual({ rows, language, frameGap, rowGap }) {
             } else if (pageTableInfo) {
               tableF = buildTableFrame(pageTableInfo, lang, fontZH, fontEN, FRAME_W - PADDING * 2);
             }
-            if (tableF) {
-              ruleNode.layoutGrow = 0;
-              ruleNode.textAutoResize = "HEIGHT";
-              tableF.layoutAlign = "STRETCH";
-              contentFrame.appendChild(tableF);
-            }
           } catch (_) {}
+
+          // 若有表格或任何副標題/副內文，主規則不撐滿
+          var hasExtra = !!tableF || colIndex.sections.some(function(sec) {
+            var tIdx = lang === "sch" ? sec.titleSch : sec.titleEN;
+            var rIdx = lang === "sch" ? sec.ruleSch  : sec.ruleEN;
+            return (tIdx >= 0 && (firstRow[tIdx] || "").trim()) ||
+                   (rIdx >= 0 && (firstRow[rIdx] || "").trim());
+          });
+          if (hasExtra) {
+            ruleNode.layoutGrow = 0;
+            ruleNode.textAutoResize = "HEIGHT";
+          }
+
+          contentFrame.appendChild(titleNode);
+          contentFrame.appendChild(ruleNode);
+
+          // 副標題/副內文（2–5 依序，空白略過）
+          for (var si = 0; si < colIndex.sections.length; si++) {
+            var sec = colIndex.sections[si];
+            var tIdx = lang === "sch" ? sec.titleSch : sec.titleEN;
+            var rIdx = lang === "sch" ? sec.ruleSch  : sec.ruleEN;
+            var subTitle = (tIdx >= 0) ? (firstRow[tIdx] || "").trim() : "";
+            var subRule  = (rIdx >= 0) ? (firstRow[rIdx] || "").trim() : "";
+
+            if (subTitle) {
+              var subTitleNode = figma.createText();
+              subTitleNode.name = "副標題";
+              subTitleNode.fontName = lang === "sch" ? fontZH : fontEN;
+              subTitleNode.fontSize = 36;
+              subTitleNode.textAlignHorizontal = "CENTER";
+              subTitleNode.characters = subTitle;
+              subTitleNode.fills = [{ type: "SOLID", color: { r: 0.90, g: 0.58, b: 0.08 } }];
+              subTitleNode.layoutAlign = "STRETCH";
+              subTitleNode.layoutGrow = 0;
+              subTitleNode.textAutoResize = "HEIGHT";
+              contentFrame.appendChild(subTitleNode);
+            }
+
+            if (subRule) {
+              var subProcessed = processBulletText(subRule);
+              var subRuleNode = figma.createText();
+              subRuleNode.name = "副內文";
+              subRuleNode.fontName = lang === "sch" ? fontZH : fontEN;
+              subRuleNode.fontSize = 26;
+              subRuleNode.characters = subProcessed.text;
+              subRuleNode.fills = [{ type: "SOLID", color: { r: 1, g: 1, b: 1 } }];
+              subRuleNode.layoutAlign = "STRETCH";
+              subRuleNode.layoutGrow = 0;
+              subRuleNode.textAutoResize = "HEIGHT";
+              for (var bi = 0; bi < subProcessed.bulletRanges.length; bi++) {
+                subRuleNode.setRangeListOptions(
+                  subProcessed.bulletRanges[bi].start,
+                  subProcessed.bulletRanges[bi].end,
+                  { type: 'UNORDERED' }
+                );
+              }
+              contentFrame.appendChild(subRuleNode);
+            }
+          }
+
+          // 表格永遠在最後
+          if (tableF) {
+            tableF.layoutAlign = "STRETCH";
+            contentFrame.appendChild(tableF);
+          }
         }
 
         pageFrame.appendChild(contentFrame);
@@ -290,6 +356,16 @@ function findColumns(headers) {
   if (idx.titleEN  === -1) idx.titleEN  = idx.titleSch;
   if (idx.ruleEN   === -1) idx.ruleEN   = idx.ruleSch;
   if (idx.titleSch === -1 && idx.titleEN === -1) return null;
+  // 副標題/副內文（2–5）動態偵測，繁簡體通用
+  idx.sections = [];
+  for (var si = 2; si <= 5; si++) {
+    idx.sections.push({
+      titleSch: find(["標題sch" + si, "标题sch" + si, "titlesch" + si]),
+      titleEN:  find(["標題en"  + si, "标题en"  + si, "titleen"  + si]),
+      ruleSch:  find(["規則sch" + si, "规则sch" + si, "rulesch"  + si]),
+      ruleEN:   find(["規則en"  + si, "规则en"  + si, "ruleen"   + si]),
+    });
+  }
   return idx;
 }
 
@@ -1639,6 +1715,21 @@ function tokenizeText(text) {
 // 後處理工具：字元級字型替換
 // =============================================
 
+// 逐字元收集文字節點所有字型，跳過 figma.mixed（Symbol）以正確處理 mixed-font 節點
+function getTextNodeFonts(textNode) {
+  var seen = {};
+  var fonts = [];
+  var text = textNode.characters;
+  for (var i = 0; i < text.length; i++) {
+    var font = textNode.getRangeFontName(i, i + 1);
+    if (typeof font !== 'symbol') {
+      var key = font.family + '\x00' + font.style;
+      if (!seen[key]) { seen[key] = true; fonts.push(font); }
+    }
+  }
+  return fonts;
+}
+
 async function handleReplaceCharFont(opts) {
   var selection = figma.currentPage.selection;
   if (selection.length === 0) {
@@ -1675,11 +1766,10 @@ async function handleReplaceCharFont(opts) {
   var succeeded = 0, failed = 0;
   for (var ni = 0; ni < textNodes.length; ni++) {
     try {
-      var segs = textNodes[ni].getStyledTextSegments(['fontName']);
-      var fontCache = {};
-      for (var si = 0; si < segs.length; si++) {
-        var fk = segs[si].fontName.family + '-' + segs[si].fontName.style;
-        if (!fontCache[fk]) { try { await figma.loadFontAsync(segs[si].fontName); } catch (e) {} fontCache[fk] = true; }
+      // 逐字元收集，確保 mixed-font 節點的所有字型都預先載入
+      var existingFonts = getTextNodeFonts(textNodes[ni]);
+      for (var fi = 0; fi < existingFonts.length; fi++) {
+        try { await figma.loadFontAsync(existingFonts[fi]); } catch (e) {}
       }
       var text = textNodes[ni].characters;
       for (var ki = 0; ki < text.length; ki++) {
@@ -1694,72 +1784,6 @@ async function handleReplaceCharFont(opts) {
     ? '⚠️ 已更新 ' + succeeded + ' 個，' + failed + ' 個失敗（字型或節點限制）'
     : '✅ 已更新 ' + succeeded + ' 個文字節點';
   figma.ui.postMessage({ type: 'style-done', text: resultMsg });
-}
-
-async function handleFixBulletFont() {
-  var selection = figma.currentPage.selection;
-  if (selection.length === 0) {
-    figma.ui.postMessage({ type: 'bullet-error', text: '⚠️ 請先選取至少一個節點' });
-    return;
-  }
-  var bulletFont = await loadFontSafe([
-    { family: 'Noto Sans TC', style: 'Regular' },
-    { family: 'Noto Sans SC', style: 'Regular' },
-    { family: 'Noto Sans',    style: 'Regular' },
-    { family: 'Inter',        style: 'Regular' }
-  ]);
-
-  var textNodes = [];
-  for (var i = 0; i < selection.length; i++) {
-    var node = selection[i];
-    if (node.type === 'TEXT') textNodes.push(node);
-    if ('findAll' in node) { var found = node.findAll(function(n) { return n.type === 'TEXT'; }); textNodes.push.apply(textNodes, found); }
-  }
-  if (textNodes.length === 0) {
-    figma.ui.postMessage({ type: 'bullet-error', text: '⚠️ 選取範圍內找不到文字節點' });
-    return;
-  }
-
-  var BULLET_SET = { '·': true, '•': true };
-  var succeeded = 0, failed = 0;
-  for (var ni = 0; ni < textNodes.length; ni++) {
-    try {
-      // 先預載所有現有字型，才能呼叫 setRangeFontName
-      var segs = textNodes[ni].getStyledTextSegments(['fontName']);
-      var fontCache = {};
-      for (var si = 0; si < segs.length; si++) {
-        var fk = segs[si].fontName.family + '-' + segs[si].fontName.style;
-        if (!fontCache[fk]) { try { await figma.loadFontAsync(segs[si].fontName); } catch (e) {} fontCache[fk] = true; }
-      }
-      var changed = false;
-      // ① 修正文字中直接存在的 · / • 字元字型
-      var text = textNodes[ni].characters;
-      for (var ki = 0; ki < text.length; ki++) {
-        if (BULLET_SET[text[ki]]) {
-          textNodes[ni].setRangeFontName(ki, ki + 1, bulletFont);
-          changed = true;
-        }
-      }
-      // ② 修正 Figma unordered list 段落的 bullet marker 字型
-      // （processBulletText 會移除 · 字元並改用 setRangeListOptions，
-      //   bullet 字型由該段落起始字元的字型決定，需在此一併補正）
-      try {
-        var listSegs = textNodes[ni].getStyledTextSegments(['listOptions']);
-        for (var ls = 0; ls < listSegs.length; ls++) {
-          var lseg = listSegs[ls];
-          if (lseg.listOptions && lseg.listOptions.type === 'UNORDERED' && lseg.start < lseg.end) {
-            textNodes[ni].setRangeFontName(lseg.start, lseg.start + 1, bulletFont);
-            changed = true;
-          }
-        }
-      } catch (_) {}
-      if (changed) succeeded++;
-    } catch (e) { failed++; }
-  }
-  var resultMsg = failed > 0
-    ? '⚠️ 已處理 ' + succeeded + ' 個節點，' + failed + ' 個失敗'
-    : '✅ 已修正 ' + succeeded + ' 個文字節點的圓點字型（→ ' + bulletFont.family + '）';
-  figma.ui.postMessage({ type: 'bullet-done', text: resultMsg });
 }
 
 // =============================================
